@@ -1,0 +1,21 @@
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+
+# Generated drafts and caches
+output/
+__pycache__/
+*.py[cod]
+*.log
+.review*
+
+# Virtual environments and editor state
+.venv/
+venv/
+.idea/
+.vscode/
+
+# User-provided media (documentation stays tracked)
+assets/*
+!assets/README.md
