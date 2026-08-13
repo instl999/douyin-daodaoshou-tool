@@ -121,6 +121,14 @@ COLOR_GRADE_TRACK = "grade"
 DEFAULT_NARRATION_SUBTITLE_Y = -700
 DEFAULT_TITLE_Y = 520
 
+# Jianying does not expose its text metrics, so wrapping has to be estimated.
+# One CJK character at TextStyle.size = S is taken to be S * SUBTITLE_EM_PX
+# pixels wide, and a line to be that much again times SUBTITLE_LINE_SPACING.
+# These two only feed the wrap compensation; if captions still drift up or
+# down when they wrap, SUBTITLE_EM_PX is the single number to calibrate.
+DEFAULT_SUBTITLE_EM_PX = 9.8
+SUBTITLE_LINE_SPACING = 1.25
+
 # Camera moves, cycled one per scene, described as a *direction* rather than
 # as fixed endpoints: (zoom, pan_x, pan_y), each -1 / 0 / +1.
 #
@@ -306,8 +314,35 @@ def resolve_asset_path(value: str) -> Path:
 
 def layout_y(pixels: int) -> float:
     """Convert a reference-frame pixel offset to a clamped transform_y."""
-    normalized = pixels / LAYOUT_REFERENCE_HALF_HEIGHT
+    return clamp_y(pixels / LAYOUT_REFERENCE_HALF_HEIGHT)
+
+
+def clamp_y(normalized: float) -> float:
     return max(-SAFE_NORMALIZED_Y, min(SAFE_NORMALIZED_Y, normalized))
+
+
+def subtitle_line_count(text: str, size: float, max_line_width: float, em_px: float) -> int:
+    """Estimate how many lines Jianying will wrap this caption onto."""
+    characters = len(text.strip())
+    if characters <= 0:
+        return 1
+    per_line = max(1, int(max_line_width * CANVAS_WIDTH / max(1e-6, size * em_px)))
+    return max(1, math.ceil(characters / per_line))
+
+
+def subtitle_baseline_y(base_y: float, lines: int, size: float, em_px: float) -> float:
+    """Hold the bottom line at a constant height however many lines there are.
+
+    A Jianying text block is positioned by its centre, so a two-line caption
+    grows both upward and downward and its last line sits lower than a
+    one-line caption's. Across thirty shots that reads as the subtitle
+    jittering up and down. Raising the block by half a line per extra line
+    keeps the bottom edge where it was.
+    """
+    if lines <= 1:
+        return clamp_y(base_y)
+    line_height = size * em_px * SUBTITLE_LINE_SPACING / CANVAS_HALF_HEIGHT
+    return clamp_y(base_y + (lines - 1) * line_height / 2)
 
 
 # ----------------------------------------------------------------- config ----
@@ -368,6 +403,7 @@ class Config:
     subtitle_border_width: float
     subtitle_letter_spacing: int
     subtitle_max_line_width: float
+    subtitle_em_px: float
     subtitle_animation: str
     subtitle_animation_us: int
     title_style: str
@@ -462,6 +498,7 @@ class Config:
             subtitle_border_width=bounded_env_float("SUBTITLE_BORDER_WIDTH", 24.0, 0.0, 40.0),
             subtitle_letter_spacing=bounded_env_int("SUBTITLE_LETTER_SPACING", 2, 0, 20),
             subtitle_max_line_width=bounded_env_float("SUBTITLE_MAX_LINE_WIDTH", 0.88, 0.4, 1.0),
+            subtitle_em_px=bounded_env_float("SUBTITLE_EM_PX", DEFAULT_SUBTITLE_EM_PX, 1.0, 40.0),
             subtitle_animation=env_value("SUBTITLE_ANIMATION", "向上擦除"),
             subtitle_animation_us=round(
                 bounded_env_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000
@@ -1101,7 +1138,12 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
             style=TextStyle(size=cfg.subtitle_size, color=subtitle_colour, align=1,
                             letter_spacing=cfg.subtitle_letter_spacing,
                             auto_wrapping=True, max_line_width=cfg.subtitle_max_line_width),
-            clip_settings=ClipSettings(transform_x=0.0, transform_y=cfg.subtitle_y),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=subtitle_baseline_y(
+                cfg.subtitle_y,
+                subtitle_line_count(scene.text, cfg.subtitle_size,
+                                    cfg.subtitle_max_line_width, cfg.subtitle_em_px),
+                cfg.subtitle_size, cfg.subtitle_em_px,
+            )),
             border=subtitle_border,
             background=subtitle_background,
             shadow=TextShadow(alpha=0.7, diffuse=25.0, distance=8.0, angle=-90.0),
