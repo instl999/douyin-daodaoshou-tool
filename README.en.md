@@ -10,8 +10,8 @@ Turns Chinese copy into an editable Jianying (CapCut China) draft: AI storyboard
 - One complete subtitle maps to one image. The panel follows only that subtitle; no charts, tickers or finance symbols are forced in.
 - **Style presets**: ships with the short-video emotional-story look by default — thick even ink lines, flat muted colour, soft even light. Switch to a realistic Korean webtoon or a high-contrast cinematic look with one setting, or write your own.
 - **Character consistency**: the storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds.
-- **Cutting rhythm**: any shot longer than `MAX_SHOT_SECONDS` is split into a wide framing plus a punch-in off the same still, doubling the visual pace at no extra image cost.
-- **Camera movement**: five Ken Burns moves (push, pull, pan left, pan right, push with a slight tilt) cycle across shots. The starting scale is always above 1.0 so a pan never exposes the frame edge.
+- **One image, one whole shot**: `01.png` runs to its end and `02.png` follows; a single image is never cut into two segments.
+- **Camera movement**: five Ken Burns moves (push, pull, pan left, pan right, push with a slight tilt) cycle one per scene. The starting scale is always above 1.0 so a pan never exposes the frame edge.
 - **Every cut is hard** — no transitions, no intro animations. Motion comes entirely from the camera move.
 - Stills are generated 3-way concurrent by default. One failure does not discard the successful images; `--resume` retries only what is missing.
 - Builds the draft with separate tracks for visuals, voice-over, captions, title, opening SFX, BGM and watermark.
@@ -70,8 +70,7 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `ARK_API_KEY` | empty | Ark Agent Plan key, shared by storyboard, image and TTS. |
 | `JIAN_YING_DRAFT_DIR` | empty | Local Jianying draft root. |
 | `IMAGE_STYLE_PRESET` | `story` | Whole-video art direction; see above. |
-| `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. Lower means faster cuts and higher cost. |
-| `MAX_SHOT_SECONDS` | `3` | Longest single shot before it is split in two. **Reach for this first to speed up pacing; it is free.** |
+| `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. This is the only pacing control: lower means faster cuts, more images and higher cost. |
 | `NARRATION_SUBTITLE_Y` | `-700` | Caption position; see the coordinate note below. |
 | `BGM_VOLUME` | `0.10` | Linear BGM gain (about -20 dB). |
 | `TITLE_STYLE` | `red` | Title colours: `red` / `white` / `gold`. |
@@ -125,7 +124,7 @@ python animated_caption_draft.py --draft-name plan_preview --input copy.txt --pl
 0s        OPENING_LEAD_SECONDS                                          end
 |---------|--------------------------------------------------------------|
  SFX+title  line 1 narration   line 2 narration    ...      last line
-[visuals]   shot 1 is on screen from 0s; every cut between shots is hard
+[visuals]   one image per line, each running whole; every cut is hard
 [captions]           one segment per line, with an intro animation
 [BGM]       looped, 0.6s fade in at the head, 0.9s fade out at the tail
 ```
@@ -159,7 +158,7 @@ python -m pytest
 python -m ruff check .
 ```
 
-The suite covers everything that does not call a paid API: layout coordinate conversion, shot splitting, camera-move parameters, BGM looping and fades, storyboard JSON tolerance, style presets, plus an integration test that builds a real draft from synthetic media and inspects the timeline.
+The suite covers everything that does not call a paid API: layout coordinate conversion, camera-move parameters, BGM looping and fades, storyboard JSON tolerance, style presets, plus an integration test that builds a real draft from synthetic media and inspects the timeline.
 
 ## Troubleshooting
 

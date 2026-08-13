@@ -40,36 +40,16 @@ def test_title_sits_in_the_upper_half():
 
 # ------------------------------------------------------------------- shots --
 
-def test_short_scene_is_one_shot():
-    assert acd.plan_shots(2 * SECOND, 3 * SECOND) == [(0, 2 * SECOND, False)]
-
-
-def test_long_scene_splits_into_a_wide_shot_and_a_punch_in():
-    shots = acd.plan_shots(5 * SECOND, 3 * SECOND)
-    assert len(shots) == 2
-    assert [is_punch_in for _, _, is_punch_in in shots] == [False, True]
-    assert sum(duration for _, duration, _ in shots) == 5 * SECOND
-    assert shots[1][0] == shots[0][1]  # the second shot starts where the first ends
-
-
-def test_odd_duration_still_sums_exactly():
-    shots = acd.plan_shots(7_000_001, 3 * SECOND)
-    assert sum(duration for _, duration, _ in shots) == 7_000_001
-
-
-def test_splitting_can_be_disabled():
-    assert len(acd.plan_shots(30 * SECOND, 0)) == 1
-
-
-def test_zero_duration_produces_no_shots():
-    assert acd.plan_shots(0, 3 * SECOND) == []
-
-
 def test_ken_burns_moves_never_start_below_full_frame():
     """A pan at scale <= 1.0 would expose the edge of the image."""
-    for scale_start, scale_end, *_ in acd.KEN_BURNS_MOVES + (acd.PUNCH_IN_MOVE,):
+    for scale_start, scale_end, *_ in acd.KEN_BURNS_MOVES:
         assert scale_start > 1.0
         assert scale_end > 1.0
+
+
+def test_every_ken_burns_move_actually_moves():
+    for scale_start, scale_end, x0, x1, y0, y1 in acd.KEN_BURNS_MOVES:
+        assert (scale_start, x0, y0) != (scale_end, x1, y1), "a static move is just a frozen still"
 
 
 # --------------------------------------------------------------------- bgm --

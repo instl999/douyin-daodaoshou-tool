@@ -24,7 +24,7 @@ pytest.importorskip("PIL", reason="Pillow is required to synthesise test images"
 pytest.importorskip("pymediainfo", reason="pyJianYingDraft needs pymediainfo to probe media")
 
 SECOND = 1_000_000
-SCENE_SECONDS = (2.1, 5.4, 3.9, 1.6, 6.2)  # three of these exceed MAX_SHOT_SECONDS
+SCENE_SECONDS = (2.1, 5.4, 3.9, 1.6, 6.2)
 
 
 def _wav(path: Path, seconds: float) -> Path:
@@ -125,11 +125,25 @@ def test_visual_track_is_gapless_and_matches_the_narration(draft):
     assert abs(previous_end - expected) < SECOND // 10
 
 
-def test_long_scenes_are_split_into_two_shots(draft):
-    _, _, tracks = draft
-    shots = len(tracks["visuals"]["segments"])
-    long_scenes = sum(1 for seconds in SCENE_SECONDS if seconds * SECOND > 3 * SECOND)
-    assert shots == len(SCENE_SECONDS) + long_scenes
+def test_one_image_is_one_uninterrupted_segment(draft):
+    """No scene may be split, however long its narration runs."""
+    cfg, _, tracks = draft
+    visuals = _sorted_segments(tracks["visuals"])
+    assert len(visuals) == len(SCENE_SECONDS)
+
+    expected = [round(seconds * SECOND) for seconds in SCENE_SECONDS]
+    expected[0] += cfg.opening_lead_us  # the first still covers the opening lead
+    for segment, want in zip(visuals, expected, strict=True):
+        got = segment["target_timerange"]["duration"]
+        assert abs(got - want) < SECOND // 20, "a scene's image was cut into more than one shot"
+
+
+def test_each_scene_uses_a_different_image(draft):
+    """01.png must be followed by 02.png, not by a second slice of 01.png."""
+    _, content, tracks = draft
+    videos = {material["id"]: material["path"] for material in content["materials"]["videos"]}
+    used = [videos[segment["material_id"]] for segment in _sorted_segments(tracks["visuals"])]
+    assert len(set(used)) == len(used), f"the same image appears in consecutive segments: {used}"
 
 
 def test_every_shot_has_camera_movement(draft):
