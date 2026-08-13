@@ -11,7 +11,7 @@ Turns Chinese copy into an editable Jianying (CapCut China) draft: AI storyboard
 - **Style presets**: ships with the short-video emotional-story look by default — thick even ink lines, flat muted colour, soft even light. Switch to a realistic Korean webtoon or a high-contrast cinematic look with one setting, or write your own.
 - **Character consistency**: the storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds.
 - **One image, one whole shot**: `01.png` runs to its end and `02.png` follows; a single image is never cut into two segments.
-- **Camera movement**: five Ken Burns moves (push, pull, pan left, pan right, push with a slight tilt) cycle one per scene. The starting scale is always above 1.0 so a pan never exposes the frame edge.
+- **Camera movement**: five Ken Burns moves cycle one per scene. How far a move travels is derived from the shot's length (3.5% of frame per second by default), so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan is always kept inside the headroom the scale provides, so it never exposes the frame edge.
 - **Every cut is hard** — no transitions, no intro animations. Motion comes entirely from the camera move.
 - Stills are generated 3-way concurrent by default. One failure does not discard the successful images; `--resume` retries only what is missing.
 - Builds the draft with separate tracks for visuals, voice-over, captions, title, opening SFX, BGM and watermark.
@@ -73,7 +73,8 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. This is the only pacing control: lower means faster cuts, more images and higher cost. |
 | `NARRATION_SUBTITLE_Y` | `-700` | Caption position; see the coordinate note below. |
 | `BGM_VOLUME` | `0.10` | Linear BGM gain (about -20 dB). |
-| `TITLE_STYLE` | `red` | Title colours: `red` / `white` / `gold`. |
+| `TITLE_STYLE` | `paper` | Title colours: `paper` (drawn from the art palette) / `red` / `white` / `gold`. |
+| `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second. Raise for a more obvious move. |
 
 ### Layout coordinate units
 

@@ -101,24 +101,41 @@ TITLE_OVERLAY_TRACK = "title_overlay"
 DEFAULT_NARRATION_SUBTITLE_Y = -700
 DEFAULT_TITLE_Y = 520
 
-# Ken Burns moves, cycled one per scene. Each entry is
-# (scale_start, scale_end, x_start, x_end, y_start, y_end); x/y are in
-# half-canvas units. The starting scale is always > 1.0 so that a pan never
-# exposes the edge of the frame.
+# Camera moves, cycled one per scene, described as a *direction* rather than
+# as fixed endpoints: (zoom, pan_x, pan_y), each -1 / 0 / +1.
+#
+# How far the move actually travels is derived from the shot's length, so a
+# 1.6s shot and a 6.2s shot move at the same perceived speed. Fixed endpoints
+# meant the same 12% push read as a fast zoom on a short shot and as no motion
+# at all on a long one.
 KEN_BURNS_MOVES = (
-    (1.08, 1.20, 0.00, 0.00, 0.00, 0.00),   # push in
-    (1.20, 1.08, 0.00, 0.00, 0.00, 0.00),   # pull out
-    (1.14, 1.14, -0.06, 0.06, 0.00, 0.00),  # pan right
-    (1.14, 1.14, 0.06, -0.06, 0.00, 0.00),  # pan left
-    (1.10, 1.18, 0.00, 0.00, 0.03, -0.03),  # push in with a slight tilt down
+    (+1, 0, 0),    # push in
+    (-1, 0, 0),    # pull out
+    (0, +1, 0),    # pan right
+    (+1, -1, 0),   # push in while drifting left
+    (+1, 0, -1),   # push in with a slight tilt down
 )
+# Fraction of the frame travelled per second, and the ceiling for one shot.
+DEFAULT_KEN_BURNS_RATE = 0.035
+KEN_BURNS_MAX_TRAVEL = 0.22
+# Every shot starts already scaled up, so a pan has room before it would
+# expose the edge of the image.
+KEN_BURNS_BASE_SCALE = 1.08
+# A pan covers this much of the zoom travel, and never more than the headroom
+# the scale provides (with a margin).
+KEN_BURNS_PAN_RATIO = 0.35
+KEN_BURNS_PAN_SAFETY = 0.9
 
 TITLE_PRESETS = {
     # name: (fill rgb, border rgb)
+    # Warm off-white on dark brown; sits inside the muted "story" palette
+    # instead of fighting it the way pure red does.
+    "paper": ((0.97, 0.94, 0.88), (0.16, 0.12, 0.10)),
     "red": ((0.92, 0.12, 0.12), (1.0, 1.0, 1.0)),
     "white": ((1.0, 1.0, 1.0), (0.92, 0.12, 0.12)),
     "gold": ((1.0, 0.82, 0.12), (0.10, 0.10, 0.10)),
 }
+DEFAULT_TITLE_STYLE = "paper"
 
 # Keys read from .env rather than the process environment, for --check-config.
 _ENV_FROM_FILE: set[str] = set()
@@ -305,14 +322,18 @@ class Config:
     subtitle_y: float
     subtitle_size: float
     subtitle_style: str
+    subtitle_border_width: float
+    subtitle_letter_spacing: int
+    subtitle_max_line_width: float
     subtitle_animation: str
     subtitle_animation_us: int
     title_style: str
     title_y: float
     title_size: float
+    title_border_width: float
     title_us: int
     title_animation: str
-    ken_burns: bool
+    ken_burns_rate: float
 
     @classmethod
     def load(cls) -> Config:
@@ -324,7 +345,7 @@ class Config:
         if subtitle_style not in {"outline", "box"}:
             raise RuntimeError("SUBTITLE_STYLE must be either outline or box.")
 
-        title_style = env_value("TITLE_STYLE", "red").lower()
+        title_style = env_value("TITLE_STYLE", DEFAULT_TITLE_STYLE).lower()
         if title_style not in TITLE_PRESETS:
             options = ", ".join(sorted(TITLE_PRESETS))
             raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
@@ -387,6 +408,9 @@ class Config:
             )),
             subtitle_size=bounded_env_float("NARRATION_SUBTITLE_SIZE", 8.0, 1.0, 30.0),
             subtitle_style=subtitle_style,
+            subtitle_border_width=bounded_env_float("SUBTITLE_BORDER_WIDTH", 24.0, 0.0, 40.0),
+            subtitle_letter_spacing=bounded_env_int("SUBTITLE_LETTER_SPACING", 2, 0, 20),
+            subtitle_max_line_width=bounded_env_float("SUBTITLE_MAX_LINE_WIDTH", 0.88, 0.4, 1.0),
             subtitle_animation=env_value("SUBTITLE_ANIMATION", "向上擦除"),
             subtitle_animation_us=round(
                 bounded_env_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000
@@ -397,9 +421,14 @@ class Config:
                 -LAYOUT_REFERENCE_HALF_HEIGHT, LAYOUT_REFERENCE_HALF_HEIGHT,
             )),
             title_size=bounded_env_float("TITLE_SIZE", 14.0, 1.0, 30.0),
+            title_border_width=bounded_env_float("TITLE_BORDER_WIDTH", 28.0, 0.0, 40.0),
             title_us=round(bounded_env_float("TITLE_SECONDS", 3.0, 0.5, 15.0) * 1_000_000),
             title_animation=env_value("TITLE_ANIMATION", "冲屏位移"),
-            ken_burns=env_flag("KEN_BURNS", True),
+            # 0 disables the camera move entirely; KEN_BURNS=0 still works.
+            ken_burns_rate=(
+                bounded_env_float("KEN_BURNS_RATE", DEFAULT_KEN_BURNS_RATE, 0.0, 0.2)
+                if env_flag("KEN_BURNS", True) else 0.0
+            ),
         )
 
 
@@ -850,9 +879,40 @@ def resolve_enum(enum_cls: Any, name: str, setting: str) -> Any:
     return members[name]
 
 
+def ken_burns_keyframes(duration_us: int, move: tuple[int, int, int],
+                        rate: float = DEFAULT_KEN_BURNS_RATE) -> tuple[float, float, float, float, float, float]:
+    """Turn a move direction into concrete endpoints for a shot of this length.
+
+    Travel is proportional to duration, so every shot moves at the same
+    perceived speed. Returns (scale_start, scale_end, x0, x1, y0, y1) with x/y
+    in half-canvas units.
+    """
+    seconds = max(0.1, duration_us / 1_000_000)
+    travel = min(KEN_BURNS_MAX_TRAVEL, rate * seconds)
+    zoom, pan_x, pan_y = move
+
+    if zoom > 0:
+        scale_start, scale_end = KEN_BURNS_BASE_SCALE, KEN_BURNS_BASE_SCALE + travel
+    elif zoom < 0:
+        scale_start, scale_end = KEN_BURNS_BASE_SCALE + travel, KEN_BURNS_BASE_SCALE
+    else:
+        # A pure pan holds a middle scale so it has headroom on both sides.
+        held = KEN_BURNS_BASE_SCALE + travel / 2
+        scale_start = scale_end = held
+
+    # At scale S the image overhangs the canvas by (S - 1) half-canvas units on
+    # each side. Staying inside that is what keeps the edge out of frame, and
+    # the smaller endpoint is the binding one.
+    headroom = max(0.0, min(scale_start, scale_end) - 1.0)
+    reach = min(travel * KEN_BURNS_PAN_RATIO, headroom * KEN_BURNS_PAN_SAFETY)
+    return (scale_start, scale_end,
+            -pan_x * reach, pan_x * reach,
+            -pan_y * reach, pan_y * reach)
+
+
 def apply_ken_burns(video: Any, keyframe_property: Any, duration_us: int,
-                    move: tuple[float, float, float, float, float, float]) -> None:
-    scale_start, scale_end, x_start, x_end, y_start, y_end = move
+                    move: tuple[int, int, int], rate: float = DEFAULT_KEN_BURNS_RATE) -> None:
+    scale_start, scale_end, x_start, x_end, y_start, y_end = ken_burns_keyframes(duration_us, move, rate)
     video.add_keyframe(keyframe_property.uniform_scale, 0, scale_start)
     video.add_keyframe(keyframe_property.uniform_scale, duration_us, scale_end)
     if x_start != x_end:
@@ -919,16 +979,18 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
     if cfg.subtitle_style == "box":
         subtitle_colour, subtitle_border, subtitle_background = (
             (0.0, 0.0, 0.0),
-            TextBorder(color=(1.0, 1.0, 1.0), width=40),
+            TextBorder(color=(1.0, 1.0, 1.0), width=cfg.subtitle_border_width),
             TextBackground(color="#000000", alpha=0.3, round_radius=0.2, height=0.14,
                            width=0.14, horizontal_offset=0.5, vertical_offset=0.5),
         )
     else:
-        # White fill on a hard black stroke, plus a soft shadow: the standard
-        # short-form caption treatment, and legible over any panel.
+        # White fill on a black stroke, plus a soft shadow: the standard
+        # short-form caption treatment, and legible over any panel. The stroke
+        # is deliberately below the maximum -- a 40-wide outline muddies the
+        # flat pale panels the "story" art direction produces.
         subtitle_colour, subtitle_border, subtitle_background = (
             (1.0, 1.0, 1.0),
-            TextBorder(color=(0.0, 0.0, 0.0), width=40),
+            TextBorder(color=(0.0, 0.0, 0.0), width=cfg.subtitle_border_width),
             None,
         )
 
@@ -945,15 +1007,17 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         # cut into the next scene is hard: no transition, no intro animation.
         # All of the motion comes from the keyframed camera move.
         video = VideoSegment(scene.image_path or "", Timerange(visual_start, visual_duration))
-        if cfg.ken_burns:
+        if cfg.ken_burns_rate > 0:
             move = KEN_BURNS_MOVES[(index - 1) % len(KEN_BURNS_MOVES)]
-            apply_ken_burns(video, KeyframeProperty, visual_duration, move)
+            apply_ken_burns(video, KeyframeProperty, visual_duration, move, cfg.ken_burns_rate)
         draft.add_segment(video, video_track)
 
         subtitle = TextSegment(
             scene.text, narration_range,
             font=subtitle_font,
-            style=TextStyle(size=cfg.subtitle_size, color=subtitle_colour, align=1, auto_wrapping=True),
+            style=TextStyle(size=cfg.subtitle_size, color=subtitle_colour, align=1,
+                            letter_spacing=cfg.subtitle_letter_spacing,
+                            auto_wrapping=True, max_line_width=cfg.subtitle_max_line_width),
             clip_settings=ClipSettings(transform_x=0.0, transform_y=cfg.subtitle_y),
             border=subtitle_border,
             background=subtitle_background,
@@ -1008,8 +1072,9 @@ def add_title(cfg: Config, draft: Any, track: Any, title: str, total_duration: i
     segment = TextSegment(
         title, Timerange(0, duration),
         font=font,
-        style=TextStyle(size=cfg.title_size, bold=True, color=fill, align=1, auto_wrapping=True),
-        border=TextBorder(color=border, width=40),
+        style=TextStyle(size=cfg.title_size, bold=True, color=fill, align=1,
+                        letter_spacing=cfg.subtitle_letter_spacing, auto_wrapping=True),
+        border=TextBorder(color=border, width=cfg.title_border_width),
         shadow=TextShadow(alpha=0.75, diffuse=25.0, distance=10.0, angle=-90.0),
         clip_settings=ClipSettings(transform_x=0.0, transform_y=cfg.title_y),
     )

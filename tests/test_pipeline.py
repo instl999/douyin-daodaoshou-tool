@@ -40,16 +40,60 @@ def test_title_sits_in_the_upper_half():
 
 # ------------------------------------------------------------------- shots --
 
-def test_ken_burns_moves_never_start_below_full_frame():
-    """A pan at scale <= 1.0 would expose the edge of the image."""
-    for scale_start, scale_end, *_ in acd.KEN_BURNS_MOVES:
-        assert scale_start > 1.0
-        assert scale_end > 1.0
+DURATIONS = (1.6, 2.5, 3.5, 5.4, 6.2, 12.0)
 
 
-def test_every_ken_burns_move_actually_moves():
-    for scale_start, scale_end, x0, x1, y0, y1 in acd.KEN_BURNS_MOVES:
-        assert (scale_start, x0, y0) != (scale_end, x1, y1), "a static move is just a frozen still"
+def _travel(duration_s, move):
+    s0, s1, x0, x1, y0, y1 = acd.ken_burns_keyframes(round(duration_s * SECOND), move)
+    return abs(s1 - s0), abs(x1 - x0), abs(y1 - y0)
+
+
+def test_camera_speed_is_the_same_on_short_and_long_shots():
+    """The bug this guards: fixed endpoints made a 1.6s shot zoom fast and a
+    6.2s shot barely move at all."""
+    push = (+1, 0, 0)
+    for duration in (1.6, 2.5, 3.5, 5.4):  # all below the travel ceiling
+        zoom, _, _ = _travel(duration, push)
+        assert zoom / duration == pytest.approx(acd.DEFAULT_KEN_BURNS_RATE, rel=1e-6)
+
+
+def test_travel_is_capped_so_long_shots_do_not_zoom_through_the_frame():
+    zoom, _, _ = _travel(60.0, (+1, 0, 0))
+    assert zoom == pytest.approx(acd.KEN_BURNS_MAX_TRAVEL)
+
+
+def test_upscale_stays_within_the_source_resolution():
+    """2560-wide source into a 1920 canvas tolerates about 1.33x before it softens."""
+    for duration in DURATIONS:
+        for move in acd.KEN_BURNS_MOVES:
+            s0, s1, *_ = acd.ken_burns_keyframes(round(duration * SECOND), move)
+            assert max(s0, s1) <= 1.33
+
+
+def test_a_pan_never_exposes_the_edge_of_the_image():
+    """At scale S the image overhangs the canvas by (S - 1) half-canvas units."""
+    for duration in DURATIONS:
+        for move in acd.KEN_BURNS_MOVES:
+            s0, s1, x0, x1, y0, y1 = acd.ken_burns_keyframes(round(duration * SECOND), move)
+            headroom = min(s0, s1) - 1.0
+            assert max(abs(x0), abs(x1), abs(y0), abs(y1)) <= headroom
+
+
+def test_every_move_actually_moves():
+    for move in acd.KEN_BURNS_MOVES:
+        zoom, pan_x, pan_y = _travel(3.5, move)
+        assert zoom + pan_x + pan_y > 0.01, "a static move is just a frozen still"
+
+
+def test_push_and_pull_are_mirror_images():
+    push = acd.ken_burns_keyframes(3_500_000, (+1, 0, 0))
+    pull = acd.ken_burns_keyframes(3_500_000, (-1, 0, 0))
+    assert (push[0], push[1]) == (pull[1], pull[0])
+
+
+def test_zero_rate_holds_the_frame_still():
+    s0, s1, x0, x1, y0, y1 = acd.ken_burns_keyframes(3_500_000, (+1, -1, 0), rate=0.0)
+    assert (s0, s1, x0, x1, y0, y1) == (acd.KEN_BURNS_BASE_SCALE, acd.KEN_BURNS_BASE_SCALE, 0, 0, 0, 0)
 
 
 # --------------------------------------------------------------------- bgm --
