@@ -1,19 +1,19 @@
 [project]
 name = "copy-to-manhua-jianying-draft"
-version = "0.2.0"
+version = "0.3.0"
 description = "Turn Chinese copy into an editable Jianying draft with AI storyboard, voice-over and manhua panels."
 requires-python = ">=3.10"
 dependencies = [
-    # The Chinese enum names (IntroType.滑片滑动, FontType.特黑体, TextIntro.卡拉OK)
-    # and the ClipSettings/Timerange API are pinned deliberately: a minor bump
-    # can rename them and the failure surfaces as a bare AttributeError.
+    # The Chinese enum names (FontType.特黑体, TextIntro.向上擦除) and the
+    # ClipSettings/Timerange API are pinned deliberately: a minor bump can
+    # rename them and the failure surfaces as a bare AttributeError.
     "pyJianYingDraft>=0.3.0,<0.4.0",
     "requests>=2.31.0",
-    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+# Pillow is only used by the integration test to synthesise images.
+dev = ["pytest>=8.0", "ruff>=0.6", "Pillow>=10.0.0"]
 
 [tool.ruff]
 line-length = 140

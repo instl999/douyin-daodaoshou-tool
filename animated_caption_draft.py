@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import argparse
 import base64
-import io
 import json
 import math
-import mimetypes
 import os
 import re
 import sys
@@ -51,31 +49,56 @@ DEFAULT_ARK_TEXT_MODEL = "deepseek-v4-flash"
 DEFAULT_ARK_IMAGE_MODEL = "doubao-seedream-5.0-lite"
 DEFAULT_ARK_TTS_MODEL = "seed-tts-2.0"
 DEFAULT_OPENING_SOUND_PATH = "assets/opening_dong.mp3"
-DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
-DASHSCOPE_VIDEO_URL = f"{DASHSCOPE_BASE_URL}/services/aigc/video-generation/video-synthesis"
 
-STYLE = (
-    "Chinese social-realism manhua panel, mature narrative webcomic aesthetic, contemporary Chinese everyday setting, "
-    "semi-realistic adult faces and believable human anatomy, strongly expressive facial emotions and dramatic but natural body "
-    "language, bold crisp black ink outlines with varied line weight, flat color fills with hard-edged cel shading, subtle printed-comic "
-    "texture on skin and clothing, saturated deep navy blue contrasted with muted warm earth tones, high-contrast cinematic lighting, "
-    "simple clean interior or urban background with clear spatial depth, polished 2D illustration, not photorealistic, no 3D render, "
-    "no watercolor, no soft pastel anime, no chibi, 16:9"
-)
+# Whole-video art direction. Pick one with IMAGE_STYLE_PRESET, or override the
+# text entirely with IMAGE_STYLE_PROMPT.
+STYLE_PRESETS = {
+    # The short-video emotional-story look: thick even ink lines, flat muted
+    # colour, soft even light, rosy cheeks, sparse domestic backgrounds.
+    "story": (
+        "Chinese webtoon manhua panel in the style of popular emotional-story short videos, contemporary Chinese "
+        "everyday setting, semi-realistic adult characters with slightly caricatured and very readable facial "
+        "expressions, believable adult proportions, thick even-weight black ink outlines on every figure and prop, "
+        "flat colour fills with soft airbrushed shading and almost no gradients, muted low-saturation palette of "
+        "dusty blue-grey, warm beige, soft olive and pale peach skin, gentle rosy blush on cheeks and nose, even "
+        "soft ambient lighting with low contrast and no dramatic shadows or rim light, simple uncluttered domestic "
+        "or street interior with only a few clearly drawn props and a plain wall, medium two-shot framing with "
+        "generous negative space, clean 2D digital illustration with a subtle warm printed-paper cast, "
+        "not photorealistic, no 3D render, no watercolour, no glossy anime highlights, no neon, no chibi, 16:9"
+    ),
+    # Cleaner and more premium: thinner lines, softer rendering, closer to a
+    # Korean webtoon. Reads as higher production value, slightly less warm.
+    "webtoon": (
+        "Korean-style realistic webtoon panel, contemporary Chinese everyday setting, semi-realistic adult faces "
+        "with natural proportions and subtle expressive acting, thin clean tapered ink linework, smooth soft "
+        "cel shading with gentle gradients, restrained natural palette of warm neutrals and desaturated blues, "
+        "soft diffused daylight, shallow depth with a simply rendered background, polished digital illustration, "
+        "not photorealistic, no 3D render, no watercolour, no heavy outlines, no chibi, 16:9"
+    ),
+    # The previous default: saturated, high-contrast, cinematic.
+    "cinematic": (
+        "Chinese social-realism manhua panel, mature narrative webcomic aesthetic, contemporary Chinese everyday "
+        "setting, semi-realistic adult faces and believable human anatomy, strongly expressive facial emotions and "
+        "dramatic but natural body language, bold crisp black ink outlines with varied line weight, flat color fills "
+        "with hard-edged cel shading, subtle printed-comic texture on skin and clothing, saturated deep navy blue "
+        "contrasted with muted warm earth tones, high-contrast cinematic lighting, simple clean interior or urban "
+        "background with clear spatial depth, polished 2D illustration, not photorealistic, no 3D render, "
+        "no watercolor, no soft pastel anime, no chibi, 16:9"
+    ),
+}
+DEFAULT_STYLE_PRESET = "story"
 
 MAX_COPY_CHARACTERS = 1800
 DEFAULT_SCENE_CHARACTERS = 22
 MIN_SCENE_CHARACTERS = 8
 DEFAULT_IMAGE_CONCURRENCY = 3
 MAX_IMAGE_CONCURRENCY = 8
-MANIFEST_VERSION = 3
+MANIFEST_VERSION = 4
 
 NARRATION_SUBTITLE_TRACK = "narration_subtitles"
-KEYWORD_OVERLAY_TRACK = "keyword_overlay"
 TITLE_OVERLAY_TRACK = "title_overlay"
 
 DEFAULT_NARRATION_SUBTITLE_Y = -700
-DEFAULT_KEYWORD_Y = -430
 DEFAULT_TITLE_Y = 520
 
 # Ken Burns moves, cycled across shots. Each entry is
@@ -116,17 +139,13 @@ class Character:
 class Scene:
     text: str
     image_prompt: str
-    keyword: str | None = None
     cast: list[str] = field(default_factory=list)
     audio_path: str | None = None
     image_path: str | None = None
     duration_us: int | None = None
-    video_task_id: str | None = None
-    video_path: str | None = None
 
 
-SCENE_FIELDS = ("text", "image_prompt", "keyword", "cast", "audio_path", "image_path",
-                "duration_us", "video_task_id", "video_path")
+SCENE_FIELDS = ("text", "image_prompt", "cast", "audio_path", "image_path", "duration_us")
 
 
 # ------------------------------------------------------------ environment ----
@@ -276,16 +295,6 @@ class Config:
     ark_tts_loudness_rate: int
     tts_concurrency: int
 
-    # DashScope image-to-video
-    dashscope_api_key: str
-    i2v_model: str
-    i2v_resolution: str
-    i2v_poll_seconds: int
-    i2v_timeout_seconds: int
-    i2v_cny_per_second: float
-    i2v_scenes: str
-    i2v_max_count: int
-
     # Jianying + assets
     draft_dir: Path
     opening_sound_path: Path
@@ -301,10 +310,6 @@ class Config:
     subtitle_style: str
     subtitle_animation: str
     subtitle_animation_us: int
-    keyword_enabled: bool
-    keyword_y: float
-    keyword_size: float
-    keyword_animation: str
     title_style: str
     title_y: float
     title_size: float
@@ -312,11 +317,9 @@ class Config:
     title_animation: str
     max_shot_us: int
     ken_burns: bool
-    shot_intro_animation: str
-    shot_intro_us: int
 
     @classmethod
-    def load(cls, *, skip_i2v: bool) -> Config:
+    def load(cls) -> Config:
         mode = env_value("SCENE_LENGTH_MODE", "density").lower()
         if mode not in {"density", "quality"}:
             raise RuntimeError("SCENE_LENGTH_MODE must be either density or quality.")
@@ -329,6 +332,11 @@ class Config:
         if title_style not in TITLE_PRESETS:
             options = ", ".join(sorted(TITLE_PRESETS))
             raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
+
+        style_preset = env_value("IMAGE_STYLE_PRESET", DEFAULT_STYLE_PRESET).lower()
+        if style_preset not in STYLE_PRESETS:
+            options = ", ".join(sorted(STYLE_PRESETS))
+            raise RuntimeError(f"IMAGE_STYLE_PRESET must be one of: {options}.")
 
         draft_dir = Path(required("JIAN_YING_DRAFT_DIR")).expanduser()
         if not draft_dir.is_dir():
@@ -358,7 +366,7 @@ class Config:
             image_concurrency=bounded_env_int(
                 "IMAGE_CONCURRENCY", DEFAULT_IMAGE_CONCURRENCY, 1, MAX_IMAGE_CONCURRENCY
             ),
-            image_style_prompt=env_value("IMAGE_STYLE_PROMPT", STYLE),
+            image_style_prompt=env_value("IMAGE_STYLE_PROMPT", STYLE_PRESETS[style_preset]),
 
             ark_tts_url=env_value("ARK_TTS_URL", DEFAULT_ARK_TTS_URL),
             ark_tts_model=env_value("ARK_TTS_MODEL", DEFAULT_ARK_TTS_MODEL),
@@ -366,15 +374,6 @@ class Config:
             ark_tts_speech_rate=bounded_env_int("ARK_TTS_SPEECH_RATE", 0, -50, 100),
             ark_tts_loudness_rate=bounded_env_int("ARK_TTS_LOUDNESS_RATE", 0, -50, 100),
             tts_concurrency=bounded_env_int("TTS_CONCURRENCY", 3, 1, MAX_IMAGE_CONCURRENCY),
-
-            dashscope_api_key="" if skip_i2v else required("DASHSCOPE_API_KEY"),
-            i2v_model=env_value("DASHSCOPE_I2V_MODEL", "wan2.6-i2v-flash"),
-            i2v_resolution=env_value("DASHSCOPE_I2V_RESOLUTION", "720P"),
-            i2v_poll_seconds=positive_env_int("DASHSCOPE_I2V_POLL_SECONDS", 15),
-            i2v_timeout_seconds=positive_env_int("DASHSCOPE_I2V_TIMEOUT_SECONDS", 900),
-            i2v_cny_per_second=bounded_env_float("DASHSCOPE_I2V_CNY_PER_SECOND", 0.155, 0.0, 100.0),
-            i2v_scenes=env_value("I2V_SCENES", "auto"),
-            i2v_max_count=bounded_env_int("I2V_MAX_COUNT", 5, 0, 60),
 
             draft_dir=draft_dir,
             opening_sound_path=_require_asset(
@@ -396,13 +395,6 @@ class Config:
             subtitle_animation_us=round(
                 bounded_env_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000
             ),
-            keyword_enabled=env_flag("KEYWORD_HIGHLIGHT", True),
-            keyword_y=layout_y(bounded_env_int(
-                "KEYWORD_Y", DEFAULT_KEYWORD_Y,
-                -LAYOUT_REFERENCE_HALF_HEIGHT, LAYOUT_REFERENCE_HALF_HEIGHT,
-            )),
-            keyword_size=bounded_env_float("KEYWORD_SIZE", 13.0, 1.0, 30.0),
-            keyword_animation=env_value("KEYWORD_ANIMATION", "放大"),
             title_style=title_style,
             title_y=layout_y(bounded_env_int(
                 "TITLE_Y", DEFAULT_TITLE_Y,
@@ -413,10 +405,6 @@ class Config:
             title_animation=env_value("TITLE_ANIMATION", "冲屏位移"),
             max_shot_us=round(bounded_env_float("MAX_SHOT_SECONDS", 3.0, 0.8, 30.0) * 1_000_000),
             ken_burns=env_flag("KEN_BURNS", True),
-            shot_intro_animation=env_value("SHOT_INTRO_ANIMATION", "渐显"),
-            shot_intro_us=round(
-                bounded_env_float("SHOT_INTRO_SECONDS", 0.3, 0.0, 3.0) * 1_000_000
-            ),
         )
 
 
@@ -439,23 +427,23 @@ def _optional_asset(setting: str, suffixes: set[str]) -> Path | None:
 def describe_configuration(cfg: Config) -> None:
     """Print the settings whose resolved value is easy to get wrong."""
     subtitle_px = round(cfg.subtitle_y * CANVAS_HALF_HEIGHT)
-    keyword_px = round(cfg.keyword_y * CANVAS_HALF_HEIGHT)
     title_px = round(cfg.title_y * CANVAS_HALF_HEIGHT)
     print(f"Canvas: {CANVAS_WIDTH}x{CANVAS_HEIGHT} @30fps (landscape)")
+    print(f"Art style: {env_value('IMAGE_STYLE_PRESET', DEFAULT_STYLE_PRESET)}"
+          f"{' (overridden by IMAGE_STYLE_PROMPT)' if os.getenv('IMAGE_STYLE_PROMPT', '').strip() else ''}")
     print(
         f"Subtitle Y: {os.getenv('NARRATION_SUBTITLE_Y', DEFAULT_NARRATION_SUBTITLE_Y)} "
         f"-> transform_y {cfg.subtitle_y:.3f} -> {abs(subtitle_px)} px "
         f"{'below' if subtitle_px < 0 else 'above'} centre "
         f"({round(CANVAS_HALF_HEIGHT + subtitle_px)} px from the bottom edge)"
     )
-    print(f"Keyword Y:  transform_y {cfg.keyword_y:.3f} ({round(CANVAS_HALF_HEIGHT + keyword_px)} px from the bottom edge)")
     print(f"Title Y:    transform_y {cfg.title_y:.3f} ({round(CANVAS_HALF_HEIGHT - title_px)} px from the top edge)")
     if cfg.bgm_volume > 0:
         print(f"BGM volume: {cfg.bgm_volume:.2f} linear ({20 * math.log10(cfg.bgm_volume):.1f} dB)")
     else:
         print("BGM volume: muted")
-    for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR", "DASHSCOPE_API_KEY",
-                 "NARRATION_SUBTITLE_Y", "IMAGE_STYLE_PROMPT"):
+    for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR",
+                 "NARRATION_SUBTITLE_Y", "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT"):
         print(f"  {name}: {env_source(name)}")
 
 
@@ -605,7 +593,7 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         "objects, action, location, time, mood, and relationship explicitly present in the subtitle. If the subtitle describes a "
         "concrete event, depict that event literally in a believable everyday setting. If it is abstract, use the simplest human "
         "situation that communicates the whole sentence without changing its meaning. The scene content should feel true to life, "
-        "but the rendering must remain a polished Chinese manhua panel with bold black outlines and hard-edged cel "
+        "but the rendering must remain a flat Chinese webtoon manhua panel with thick black outlines and soft even "
         "shading, never photography or 3D. Do not force a finance theme. "
         "Never add charts, tables, dashboards, graphs, market arrows, coins, banks, office imagery, or decorative business symbols "
         "unless that exact subtitle genuinely calls for them. Do not visually magnify an incidental word at the expense of the full "
@@ -614,10 +602,8 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         "watermarks, subtitles, speech bubbles, or fake interface copy. "
         f"{cast_instruction}"
         "Set \"cast\" on each scene to the ids of the characters visible in that panel, or [] if nobody recurring appears. "
-        "Set \"keyword\" to the two-to-six-character Chinese phrase in that subtitle that carries the most weight -- a number, a "
-        "turning point, or the conclusion -- and it must appear verbatim inside \"text\". Use \"\" when no word stands out. "
         'Return JSON only: {"characters":[{"id":"A","desc":"English description"}],'
-        '"scenes":[{"text":"Chinese scene copy","image_prompt":"English image prompt","keyword":"","cast":["A"]}]}'
+        '"scenes":[{"text":"Chinese scene copy","image_prompt":"English image prompt","cast":["A"]}]}'
     )
 
 
@@ -641,16 +627,9 @@ def scenes_from_payload(data: dict[str, Any]) -> list[Scene]:
             continue
         if not text.strip() or not image_prompt.strip():
             continue
-        keyword = item.get("keyword")
-        keyword = keyword.strip() if isinstance(keyword, str) else ""
-        # A keyword the model invented rather than quoted would look wrong
-        # sitting above the subtitle, so only keep verbatim matches.
-        if keyword and keyword not in text:
-            keyword = ""
         raw_cast = item.get("cast")
         cast = [str(cid).strip() for cid in raw_cast if str(cid).strip()] if isinstance(raw_cast, list) else []
-        scenes.append(Scene(text=text.strip(), image_prompt=image_prompt.strip(),
-                            keyword=keyword or None, cast=cast))
+        scenes.append(Scene(text=text.strip(), image_prompt=image_prompt.strip(), cast=cast))
     return scenes
 
 
@@ -862,143 +841,6 @@ def generate_image(cfg: Config, prompt: str, target: Path) -> None:
     target.write_bytes(download.content)
 
 
-# ------------------------------------------------------------------- i2v ----
-
-def select_i2v_scene_indices(total: int, spec: str, max_count: int) -> list[int]:
-    """Pick which 1-based scenes become dynamic video.
-
-    "auto" spreads the budget across the whole video -- always the opening hook
-    and the closing beat, evenly filled in between -- so motion does not simply
-    stop partway through.
-    """
-    spec = spec.strip().lower()
-    if total <= 0 or spec in {"", "none", "off", "0"}:
-        return []
-    if spec != "auto":
-        # An explicit list is taken literally; I2V_MAX_COUNT only caps "auto".
-        indices: set[int] = set()
-        for part in spec.replace(" ", "").split(","):
-            if not part:
-                continue
-            if not part.isdigit():
-                raise RuntimeError(f"I2V_SCENES must be 'auto', 'none', or a comma-separated list; got {part!r}.")
-            value = int(part)
-            if 1 <= value <= total:
-                indices.add(value)
-        return sorted(indices)
-    if max_count <= 0:
-        return []
-    count = min(max_count, total)
-    if count == 1:
-        return [1]
-    return sorted({1 + round(step * (total - 1) / (count - 1)) for step in range(count)})
-
-
-def i2v_duration_seconds(audio_duration_us: int) -> int:
-    """Request one second more than the narration needs.
-
-    Video models return slightly less than the requested length (frame rounding),
-    and a clip shorter than its narration used to abort the whole draft.
-    """
-    return min(15, max(2, math.ceil(audio_duration_us / 1_000_000) + 1))
-
-
-def first_frame_data_uri(path: Path, resolution: str) -> str:
-    """Encode the first frame, downscaled to what the video model will use.
-
-    A 2K PNG base64s to 5-11 MB, which can exceed the request-size limit while
-    the model only renders at 720P anyway.
-    """
-    target_height = 1080 if "1080" in resolution else 720
-    try:
-        from PIL import Image
-    except ImportError:
-        print(
-            "Pillow is not installed; sending the full-size first frame. "
-            "Install it (pip install Pillow) if image-to-video submissions fail on request size.",
-            flush=True,
-        )
-        mime = mimetypes.guess_type(path.name)[0] or "image/png"
-        return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
-
-    with Image.open(path) as source:
-        image = source.convert("RGB")
-        if image.height > target_height:
-            width = round(image.width * target_height / image.height)
-            image = image.resize((width, target_height), Image.LANCZOS)
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=90)
-    return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode('ascii')}"
-
-
-def scene_video_prompt(scene: Scene) -> str:
-    return (
-        f"{scene.image_prompt}, subtle natural motion, gentle character movement, slow cinematic camera movement, "
-        "preserve the first-frame composition, no cuts, no text, no subtitles, no watermark, silent video"
-    )
-
-
-def i2v_headers(cfg: Config, async_task: bool = False) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {cfg.dashscope_api_key}", "Content-Type": "application/json"}
-    if async_task:
-        headers["X-DashScope-Async"] = "enable"
-    return headers
-
-
-def submit_scene_video(cfg: Config, scene: Scene, image_path: Path, audio_duration_us: int) -> str:
-    payload = {
-        "model": cfg.i2v_model,
-        "input": {"prompt": scene_video_prompt(scene),
-                  "img_url": first_frame_data_uri(image_path, cfg.i2v_resolution)},
-        "parameters": {
-            "resolution": cfg.i2v_resolution,
-            "duration": i2v_duration_seconds(audio_duration_us),
-            "prompt_extend": True,
-            "watermark": False,
-            "audio": False,
-        },
-    }
-    # Creating the task is billed, so a timeout is not retried automatically.
-    response = post(DASHSCOPE_VIDEO_URL, headers=i2v_headers(cfg, True), json=payload,
-                    timeout=300, retry_on_timeout=False)
-    ensure_ok(response, "Image-to-video submission")
-    output = response.json().get("output", {})
-    task_id = output.get("task_id")
-    if not task_id:
-        raise RuntimeError(f"Image-to-video task was not created: {response.text[:300]}")
-    return task_id
-
-
-def wait_for_scene_video(cfg: Config, task_id: str, target: Path) -> None:
-    deadline = time.monotonic() + cfg.i2v_timeout_seconds
-    while time.monotonic() < deadline:
-        response = get(f"{DASHSCOPE_BASE_URL}/tasks/{task_id}", headers=i2v_headers(cfg), timeout=60)
-        ensure_ok(response, "Image-to-video status")
-        output = response.json().get("output", {})
-        status = output.get("task_status")
-        if status == "SUCCEEDED":
-            video_url = output.get("video_url")
-            if not video_url:
-                raise RuntimeError(f"Image-to-video task succeeded without a video URL: {task_id}")
-            download = ensure_ok(get(video_url, timeout=300), "Video download")
-            target.write_bytes(download.content)
-            return
-        if status in {"FAILED", "CANCELED", "UNKNOWN"}:
-            raise RuntimeError(f"Image-to-video task {task_id} ended with {status}: {output.get('message', output)}")
-        time.sleep(cfg.i2v_poll_seconds)
-    raise RuntimeError(f"Image-to-video task timed out after polling: {task_id}")
-
-
-def print_i2v_cost_estimate(cfg: Config, scenes: list[Scene], indices: list[int]) -> None:
-    selected = [scene for index, scene in enumerate(scenes, 1) if index in set(indices)]
-    estimated_seconds = sum(i2v_duration_seconds(scene.duration_us or 4_000_000) for scene in selected)
-    print(
-        f"Estimated image-to-video cost: CNY {estimated_seconds * cfg.i2v_cny_per_second:.2f} "
-        f"({len(selected)} scenes, about {estimated_seconds}s x CNY {cfg.i2v_cny_per_second:.3f}/s).",
-        flush=True,
-    )
-
-
 # ----------------------------------------------------------------- draft ----
 
 def resolve_enum(enum_cls: Any, name: str, setting: str) -> Any:
@@ -1057,7 +899,6 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         ClipSettings,
         DraftFolder,
         FontType,
-        IntroType,
         KeyframeProperty,
         TextBackground,
         TextBorder,
@@ -1068,7 +909,6 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         Timerange,
         TrackSpec,
         TrackType,
-        VideoMaterial,
         VideoSegment,
     )
 
@@ -1076,17 +916,9 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         None if cfg.subtitle_animation.lower() in {"", "none", "off"} or not cfg.subtitle_animation_us
         else resolve_enum(TextIntro, cfg.subtitle_animation, "SUBTITLE_ANIMATION")
     )
-    keyword_intro = (
-        None if cfg.keyword_animation.lower() in {"", "none", "off"}
-        else resolve_enum(TextIntro, cfg.keyword_animation, "KEYWORD_ANIMATION")
-    )
     title_intro = (
         None if cfg.title_animation.lower() in {"", "none", "off"}
         else resolve_enum(TextIntro, cfg.title_animation, "TITLE_ANIMATION")
-    )
-    shot_intro = (
-        None if cfg.shot_intro_animation.lower() in {"", "none", "off"} or not cfg.shot_intro_us
-        else resolve_enum(IntroType, cfg.shot_intro_animation, "SHOT_INTRO_ANIMATION")
     )
 
     draft = DraftFolder(str(cfg.draft_dir)).create_draft(
@@ -1099,9 +931,6 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         draft.append_track(TrackSpec(TrackType.video, "watermark")) if cfg.watermark_path else None
     )
     narration_subtitle_track = draft.append_track(TrackSpec(TrackType.text, NARRATION_SUBTITLE_TRACK))
-    keyword_track = (
-        draft.append_track(TrackSpec(TrackType.text, KEYWORD_OVERLAY_TRACK)) if cfg.keyword_enabled else None
-    )
     title_overlay_track = draft.append_track(TrackSpec(TrackType.text, TITLE_OVERLAY_TRACK))
     bgm_material = AudioMaterial(str(cfg.bgm_path)) if cfg.bgm_path else None
     bgm_track = draft.append_track(TrackSpec(TrackType.audio, "BGM")) if bgm_material else None
@@ -1135,37 +964,17 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         visual_start = 0 if index == 1 else cursor
         visual_duration = audio.duration + (cfg.opening_lead_us if index == 1 else 0)
 
-        dynamic_path = scene.video_path if scene.video_path and Path(scene.video_path).is_file() else None
-        if dynamic_path:
-            dynamic_material = VideoMaterial(dynamic_path)
-            # Frame rounding can leave the clip a few milliseconds short of its
-            # narration. Use whatever the clip actually has and let the still
-            # underneath cover any remainder, rather than failing the build
-            # after every asset has already been paid for.
-            usable = min(dynamic_material.duration, visual_duration)
-            video = VideoSegment(dynamic_material, Timerange(visual_start, usable),
-                                 source_timerange=Timerange(0, usable))
-            if shot_intro is not None:
-                video.add_animation(shot_intro, duration=min(cfg.shot_intro_us, usable))
+        # Every shot is a hard cut: no transition, no intro animation. Only the
+        # keyframed camera move carries the motion.
+        for offset, shot_duration, is_punch_in in plan_shots(visual_duration, cfg.max_shot_us):
+            video = VideoSegment(scene.image_path or "",
+                                 Timerange(visual_start + offset, shot_duration))
+            if cfg.ken_burns:
+                move = PUNCH_IN_MOVE if is_punch_in else KEN_BURNS_MOVES[move_index % len(KEN_BURNS_MOVES)]
+                apply_ken_burns(video, KeyframeProperty, shot_duration, move)
             draft.add_segment(video, video_track)
-            if usable < visual_duration and scene.image_path:
-                filler = VideoSegment(scene.image_path,
-                                      Timerange(visual_start + usable, visual_duration - usable))
-                draft.add_segment(filler, video_track)
-        else:
-            for offset, shot_duration, is_punch_in in plan_shots(visual_duration, cfg.max_shot_us):
-                video = VideoSegment(scene.image_path or "",
-                                     Timerange(visual_start + offset, shot_duration))
-                if cfg.ken_burns:
-                    move = PUNCH_IN_MOVE if is_punch_in else KEN_BURNS_MOVES[move_index % len(KEN_BURNS_MOVES)]
-                    apply_ken_burns(video, KeyframeProperty, shot_duration, move)
-                # Only the first shot of a scene fades in; a punch-in reads as a
-                # second camera and should stay a hard cut.
-                if shot_intro is not None and not is_punch_in:
-                    video.add_animation(shot_intro, duration=min(cfg.shot_intro_us, shot_duration))
-                draft.add_segment(video, video_track)
-                if not is_punch_in:
-                    move_index += 1
+            if not is_punch_in:
+                move_index += 1
 
         subtitle = TextSegment(
             scene.text, narration_range,
@@ -1179,20 +988,6 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         if subtitle_intro is not None:
             subtitle.add_animation(subtitle_intro, duration=cfg.subtitle_animation_us)
         draft.add_segment(subtitle, narration_subtitle_track)
-
-        if keyword_track is not None and scene.keyword:
-            keyword = TextSegment(
-                scene.keyword, narration_range,
-                font=subtitle_font,
-                style=TextStyle(size=cfg.keyword_size, bold=True, color=(1.0, 0.84, 0.16),
-                                align=1, auto_wrapping=False),
-                clip_settings=ClipSettings(transform_x=0.0, transform_y=cfg.keyword_y),
-                border=TextBorder(color=(0.06, 0.06, 0.06), width=40),
-                shadow=TextShadow(alpha=0.8, diffuse=20.0, distance=10.0, angle=-90.0),
-            )
-            if keyword_intro is not None:
-                keyword.add_animation(keyword_intro, duration=min(300_000, audio.duration))
-            draft.add_segment(keyword, keyword_track)
 
         draft.add_segment(AudioSegment(audio, narration_range), audio_track)
         scene.duration_us = audio.duration
@@ -1336,8 +1131,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Validate local configuration and assets without API calls.")
     parser.add_argument("--plan-only", dest="plan_only", action="store_true",
                         help="Generate and print a storyboard only; this still calls the storyboard API.")
-    parser.add_argument("--skip-i2v", action="store_true",
-                        help="Do not call image-to-video; build a static keyframe draft instead.")
     parser.add_argument("--verbose", action="store_true", help="Print a full traceback on failure.")
     return parser
 
@@ -1346,7 +1139,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     load_env()
-    cfg = Config.load(skip_i2v=args.skip_i2v)
+    cfg = Config.load()
     if args.check_config:
         print("Configuration OK")
         describe_configuration(cfg)
@@ -1365,7 +1158,7 @@ def main() -> int:
         if int(state.get("version", 0)) < MANIFEST_VERSION:
             print(
                 f"Manifest was written by an older version (v{state.get('version')}); "
-                "resuming, but image prompts may not match the new format exactly.",
+                "resuming, but fields it no longer uses are ignored.",
                 flush=True,
             )
         copy = state.get("copy", "")
@@ -1422,13 +1215,9 @@ def main() -> int:
     audio_dir, image_dir = asset_root / "audio", asset_root / "images"
     audio_dir.mkdir(parents=True, exist_ok=True)
     image_dir.mkdir(parents=True, exist_ok=True)
-    video_dir = asset_root / "videos"
     for index, scene in enumerate(scenes, 1):
         adopt_existing_asset(scene, "audio_path", audio_dir / f"{index:02d}.mp3")
         adopt_existing_asset(scene, "image_path", image_dir / f"{index:02d}.png")
-        # Adopt any video already paid for, even if it is no longer in the
-        # current I2V selection.
-        adopt_existing_asset(scene, "video_path", video_dir / f"{index:02d}.mp4")
     save_run_state(asset_root, draft_name, title, copy, scenes, characters, "reconciled", failures)
     append_run_log(asset_root, "assets_reconciled")
 
@@ -1511,42 +1300,6 @@ def main() -> int:
                 f"{len(current_image_failures)} image(s) failed; successful images were kept for --resume. "
                 f"First failure: scene {first_failure['scene']}: {first_failure['error']}"
             )
-
-    if args.skip_i2v:
-        print("Dynamic videos: skipped (--skip-i2v); all scenes will use static-image keyframes.", flush=True)
-        append_run_log(asset_root, "image_to_video_skipped")
-    else:
-        video_dir.mkdir(parents=True, exist_ok=True)
-        indices = select_i2v_scene_indices(len(scenes), cfg.i2v_scenes, cfg.i2v_max_count)
-        pending = [(index, scenes[index - 1]) for index in indices
-                   if not (scenes[index - 1].video_path and Path(scenes[index - 1].video_path).is_file())]
-        if indices:
-            print(f"Dynamic video scenes: {', '.join(str(index) for index in indices)}", flush=True)
-        if pending:
-            print_i2v_cost_estimate(cfg, scenes, [index for index, _ in pending])
-            report_progress("Dynamic videos", 0, len(pending))
-        completed_videos = 0
-        for index, scene in pending:
-            video_path = video_dir / f"{index:02d}.mp4"
-            try:
-                if not scene.video_task_id:
-                    scene.video_task_id = submit_scene_video(
-                        cfg, scene, Path(scene.image_path or ""), scene.duration_us or 4_000_000
-                    )
-                    save_run_state(asset_root, draft_name, title, copy, scenes, characters, "video_submitted", failures)
-                    append_run_log(asset_root, "video_submitted", scene=index, task_id=scene.video_task_id)
-                wait_for_scene_video(cfg, scene.video_task_id, video_path)
-            except Exception as exc:
-                failure = {"stage": "image_to_video", "scene": index, "task_id": scene.video_task_id, "error": str(exc)}
-                failures.append(failure)
-                save_run_state(asset_root, draft_name, title, copy, scenes, characters, "failed", failures)
-                append_run_log(asset_root, "image_to_video_failed", **failure)
-                raise
-            scene.video_path = str(video_path.resolve())
-            save_run_state(asset_root, draft_name, title, copy, scenes, characters, "video_in_progress", failures)
-            append_run_log(asset_root, "video_completed", scene=index, task_id=scene.video_task_id)
-            completed_videos += 1
-            report_progress("Dynamic videos", completed_videos, len(pending))
 
     report_progress("Draft", 0, 1)
     try:
