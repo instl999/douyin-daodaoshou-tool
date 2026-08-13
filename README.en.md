@@ -11,6 +11,9 @@ Turns Chinese copy into an editable Jianying (CapCut China) draft: AI storyboard
 - **Style presets**: ships with the short-video emotional-story look by default — thick even ink lines, flat muted colour, soft even light. Switch to a realistic Korean webtoon or a high-contrast cinematic look with one setting, or write your own.
 - **Character consistency**: the storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds.
 - **One image, one whole shot**: `01.png` runs to its end and `02.png` follows; a single image is never cut into two segments.
+- **Framing varies**: the storyboard model picks wide / medium / close per scene — wide to establish, close for the feeling and the conclusion — instead of thirty shots at the same camera distance.
+- **The video breathes**: a beat of BGM only after each paragraph (the outgoing picture holds through it), the music ducked under speech and lifted in the gaps, and the last picture held for 1.8s after the final word.
+- **One colour grade** across the whole video, pulling independently generated panels into the same look.
 - **Camera movement**: five Ken Burns moves cycle one per scene. How far a move travels is derived from the shot's length (3.5% of frame per second by default), so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan is always kept inside the headroom the scale provides, so it never exposes the frame edge.
 - **Every cut is hard** — no transitions, no intro animations. Motion comes entirely from the camera move.
 - Stills are generated 3-way concurrent by default. One failure does not discard the successful images; `--resume` retries only what is missing.
@@ -75,6 +78,10 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `BGM_VOLUME` | `0.10` | Linear BGM gain (about -20 dB). |
 | `TITLE_STYLE` | `paper` | Title colours: `paper` (drawn from the art palette) / `red` / `white` / `gold`. |
 | `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second. Raise for a more obvious move. |
+| `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph. |
+| `ENDING_HOLD_SECONDS` | `1.8` | How long the last picture holds. |
+| `BGM_LIFT_VOLUME` | `0.20` | Music level in the gaps. |
+| `COLOR_GRADE` | `灰调中性` | Whole-video filter; `none` disables. |
 
 ### Layout coordinate units
 
@@ -122,12 +129,14 @@ python animated_caption_draft.py --draft-name plan_preview --input copy.txt --pl
 ## Timeline layout
 
 ```text
-0s        OPENING_LEAD_SECONDS                                          end
-|---------|--------------------------------------------------------------|
- SFX+title  line 1 narration   line 2 narration    ...      last line
-[visuals]   one image per line, each running whole; every cut is hard
-[captions]           one segment per line, with an intro animation
-[BGM]       looped, 0.6s fade in at the head, 0.9s fade out at the tail
+0s     lead                          paragraph beat              last line  hold
+|------|-------|-------|-------|~~~~~~~|-------|  ...  |-------|~~~~~~~~~~|
+ SFX+title  line 1  line 2  line 3          line 4              last line
+[visuals]  one image per line, running whole; the outgoing picture covers
+           the beats and the ending hold, so a pause never shows as black
+[captions] one segment per line, with an intro animation; silent in the beats
+[BGM]      0.10 under speech, 0.20 in the gaps; looped, faded at both ends
+[grade]    one filter across the whole video
 ```
 
 ## Resuming

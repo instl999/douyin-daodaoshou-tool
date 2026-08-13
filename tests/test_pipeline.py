@@ -96,6 +96,141 @@ def test_zero_rate_holds_the_frame_still():
     assert (s0, s1, x0, x1, y0, y1) == (acd.KEN_BURNS_BASE_SCALE, acd.KEN_BURNS_BASE_SCALE, 0, 0, 0, 0)
 
 
+# ---------------------------------------------------------------- timeline --
+
+def test_scenes_are_contiguous_and_cover_the_whole_video():
+    durations = [2 * SECOND, 3 * SECOND, 4 * SECOND]
+    timings, total = acd.plan_timeline(durations, [False, True, False],
+                                       lead_us=800_000, pause_us=500_000, hold_us=1_800_000)
+    assert timings[0].visual_start == 0, "the first picture must cover the opening lead"
+    previous_end = 0
+    for timing in timings:
+        assert timing.visual_start == previous_end, "a gap here would show as black"
+        previous_end = timing.visual_start + timing.visual_duration
+    assert previous_end == total
+
+
+def test_narration_is_never_overlapped_and_keeps_its_own_length():
+    durations = [2 * SECOND, 3 * SECOND, 4 * SECOND]
+    timings, _ = acd.plan_timeline(durations, [False, True, False],
+                                   lead_us=800_000, pause_us=500_000, hold_us=1_800_000)
+    assert [t.narration_duration for t in timings] == durations
+    for earlier, later in zip(timings, timings[1:], strict=False):
+        assert later.narration_start >= earlier.narration_end
+
+
+def test_a_paragraph_pause_pushes_the_next_line_back():
+    durations = [2 * SECOND, 2 * SECOND]
+    with_pause, _ = acd.plan_timeline(durations, [True, False], 0, 500_000, 0)
+    without, _ = acd.plan_timeline(durations, [False, False], 0, 500_000, 0)
+    assert with_pause[1].narration_start - without[1].narration_start == 500_000
+
+
+def test_the_last_scene_holds_after_its_narration_ends():
+    timings, total = acd.plan_timeline([2 * SECOND], [False], 0, 500_000, 1_800_000)
+    assert timings[0].visual_duration == 2 * SECOND + 1_800_000
+    assert total - timings[0].narration_end == 1_800_000
+
+
+def test_a_pause_on_the_last_scene_is_ignored():
+    """It would only add dead air before the ending hold."""
+    _, total = acd.plan_timeline([2 * SECOND], [True], 0, 500_000, 0)
+    assert total == 2 * SECOND
+
+
+def test_timeline_without_pauses_or_hold_is_just_the_narration():
+    durations = [2 * SECOND, 3 * SECOND]
+    timings, total = acd.plan_timeline(durations, [False, False], 0, 0, 0)
+    assert total == sum(durations)
+    assert [t.narration_start for t in timings] == [0, 2 * SECOND]
+
+
+# ---------------------------------------------------------------- ducking --
+
+RAMP = 250_000
+
+
+def _levels(points):
+    return [volume for _, volume in points]
+
+
+def test_bgm_is_quiet_under_speech_and_lifted_in_the_gaps():
+    speech = [(SECOND, 3 * SECOND), (4 * SECOND, 6 * SECOND)]   # a 1s gap between
+    points = acd.bgm_volume_envelope(speech, 8 * SECOND, 0.10, 0.20, RAMP)
+    assert acd.sample_envelope(points, 2 * SECOND) == pytest.approx(0.10)
+    assert acd.sample_envelope(points, 5 * SECOND) == pytest.approx(0.10)
+    assert acd.sample_envelope(points, 3 * SECOND + RAMP) == pytest.approx(0.20), "the gap must lift"
+    assert acd.sample_envelope(points, 7 * SECOND) == pytest.approx(0.20), "the ending hold must lift"
+
+
+def test_no_lift_when_there_is_no_room_for_the_ramp():
+    """Back-to-back lines must not make the music pump between every sentence."""
+    speech = [(0, 2 * SECOND), (2 * SECOND, 4 * SECOND), (4 * SECOND, 6 * SECOND)]
+    points = acd.bgm_volume_envelope(speech, 6 * SECOND, 0.10, 0.20, RAMP)
+    assert max(_levels(points)) == pytest.approx(0.10)
+
+
+def test_envelope_points_are_ordered_and_in_range():
+    speech = [(800_000, 3 * SECOND), (3 * SECOND, 5 * SECOND), (6 * SECOND, 9 * SECOND)]
+    points = acd.bgm_volume_envelope(speech, 11 * SECOND, 0.10, 0.20, RAMP)
+    times = [moment for moment, _ in points]
+    assert times == sorted(times)
+    assert len(times) == len(set(times))
+    assert 0 <= min(times) and max(times) <= 11 * SECOND
+    assert all(0.10 <= volume <= 0.20 for volume in _levels(points))
+
+
+def test_envelope_covers_the_whole_video():
+    points = acd.bgm_volume_envelope([(SECOND, 3 * SECOND)], 5 * SECOND, 0.10, 0.20, RAMP)
+    assert points[0][0] == 0
+    assert points[-1][0] == 5 * SECOND
+
+
+def test_envelope_without_speech_is_flat():
+    points = acd.bgm_volume_envelope([], 5 * SECOND, 0.10, 0.20, RAMP)
+    assert _levels(points) == [0.20, 0.20]
+
+
+def test_sample_interpolates_between_points():
+    points = [(0, 0.10), (SECOND, 0.20)]
+    assert acd.sample_envelope(points, SECOND // 2) == pytest.approx(0.15)
+    assert acd.sample_envelope(points, -SECOND) == pytest.approx(0.10)
+    assert acd.sample_envelope(points, 9 * SECOND) == pytest.approx(0.20)
+
+
+# ------------------------------------------------------------- shot sizes --
+
+def test_every_shot_size_injects_distinct_framing():
+    prompts = {
+        size: acd.compose_image_prompt(_StubConfig(), _scene(shot_size=size), [])
+        for size in acd.SHOT_SIZES
+    }
+    assert len(set(prompts.values())) == len(acd.SHOT_SIZES)
+    assert "Close-up" in prompts["close"]
+    assert "Wide establishing" in prompts["wide"]
+
+
+def test_unknown_shot_size_falls_back_to_medium():
+    odd = acd.compose_image_prompt(_StubConfig(), _scene(shot_size="extreme-close"), [])
+    assert odd == acd.compose_image_prompt(_StubConfig(), _scene(shot_size="medium"), [])
+
+
+def test_framing_is_not_baked_into_the_art_direction():
+    """Thirty identical medium shots was the bug; framing belongs per scene."""
+    for prompt in acd.STYLE_PRESETS.values():
+        assert "two-shot framing" not in prompt
+
+
+def test_shot_size_and_pause_are_read_from_the_storyboard():
+    scenes = acd.scenes_from_payload({"scenes": [
+        {"text": "一句话", "image_prompt": "x", "shot_size": "CLOSE", "pause_after": True},
+        {"text": "另一句", "image_prompt": "x", "shot_size": "nonsense"},
+        {"text": "第三句", "image_prompt": "x"},
+    ]})
+    assert [s.shot_size for s in scenes] == ["close", "medium", "medium"]
+    assert [s.pause_after for s in scenes] == [True, False, False]
+
+
 # --------------------------------------------------------------------- bgm --
 
 def test_bgm_shorter_than_the_video_loops_and_fades_at_both_ends():
