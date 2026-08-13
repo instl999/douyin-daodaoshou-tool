@@ -9,6 +9,11 @@ __pycache__/
 *.py[cod]
 *.log
 .review*
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
 
 # Virtual environments and editor state
 .venv/
