@@ -101,7 +101,7 @@ TITLE_OVERLAY_TRACK = "title_overlay"
 DEFAULT_NARRATION_SUBTITLE_Y = -700
 DEFAULT_TITLE_Y = 520
 
-# Ken Burns moves, cycled across shots. Each entry is
+# Ken Burns moves, cycled one per scene. Each entry is
 # (scale_start, scale_end, x_start, x_end, y_start, y_end); x/y are in
 # half-canvas units. The starting scale is always > 1.0 so that a pan never
 # exposes the edge of the frame.
@@ -112,9 +112,6 @@ KEN_BURNS_MOVES = (
     (1.14, 1.14, 0.06, -0.06, 0.00, 0.00),  # pan left
     (1.10, 1.18, 0.00, 0.00, 0.03, -0.03),  # push in with a slight tilt down
 )
-# Second half of a split scene: a punch-in that reads as a different camera.
-# Capped at 1.40 so a 2560-wide source is still sampled near 1:1.
-PUNCH_IN_MOVE = (1.30, 1.40, 0.00, 0.00, 0.05, 0.02)
 
 TITLE_PRESETS = {
     # name: (fill rgb, border rgb)
@@ -315,7 +312,6 @@ class Config:
     title_size: float
     title_us: int
     title_animation: str
-    max_shot_us: int
     ken_burns: bool
 
     @classmethod
@@ -403,7 +399,6 @@ class Config:
             title_size=bounded_env_float("TITLE_SIZE", 14.0, 1.0, 30.0),
             title_us=round(bounded_env_float("TITLE_SECONDS", 3.0, 0.5, 15.0) * 1_000_000),
             title_animation=env_value("TITLE_ANIMATION", "冲屏位移"),
-            max_shot_us=round(bounded_env_float("MAX_SHOT_SECONDS", 3.0, 0.8, 30.0) * 1_000_000),
             ken_burns=env_flag("KEN_BURNS", True),
         )
 
@@ -855,21 +850,6 @@ def resolve_enum(enum_cls: Any, name: str, setting: str) -> Any:
     return members[name]
 
 
-def plan_shots(duration_us: int, max_shot_us: int) -> list[tuple[int, int, bool]]:
-    """Split one scene's visual span into shots.
-
-    Returns (offset, duration, is_punch_in) tuples. A long scene becomes two
-    shots off the same still: a wide framing and a punch-in. The narration and
-    subtitle stay single segments, so nothing can drift out of sync.
-    """
-    if duration_us <= 0:
-        return []
-    if max_shot_us <= 0 or duration_us <= max_shot_us:
-        return [(0, duration_us, False)]
-    first = duration_us // 2
-    return [(0, first, False), (first, duration_us - first, True)]
-
-
 def apply_ken_burns(video: Any, keyframe_property: Any, duration_us: int,
                     move: tuple[float, float, float, float, float, float]) -> None:
     scale_start, scale_end, x_start, x_end, y_start, y_end = move
@@ -953,9 +933,6 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         )
 
     cursor = cfg.opening_lead_us
-    # Only wide static shots advance the camera-move cycle, so all of
-    # KEN_BURNS_MOVES gets used instead of being skipped past by punch-ins.
-    move_index = 0
     for index, scene in enumerate(scenes, 1):
         audio = AudioMaterial(scene.audio_path or "")
         narration_range = Timerange(cursor, audio.duration)
@@ -964,17 +941,14 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         visual_start = 0 if index == 1 else cursor
         visual_duration = audio.duration + (cfg.opening_lead_us if index == 1 else 0)
 
-        # Every shot is a hard cut: no transition, no intro animation. Only the
-        # keyframed camera move carries the motion.
-        for offset, shot_duration, is_punch_in in plan_shots(visual_duration, cfg.max_shot_us):
-            video = VideoSegment(scene.image_path or "",
-                                 Timerange(visual_start + offset, shot_duration))
-            if cfg.ken_burns:
-                move = PUNCH_IN_MOVE if is_punch_in else KEN_BURNS_MOVES[move_index % len(KEN_BURNS_MOVES)]
-                apply_ken_burns(video, KeyframeProperty, shot_duration, move)
-            draft.add_segment(video, video_track)
-            if not is_punch_in:
-                move_index += 1
+        # One image, one uninterrupted segment. Scenes are never split, and the
+        # cut into the next scene is hard: no transition, no intro animation.
+        # All of the motion comes from the keyframed camera move.
+        video = VideoSegment(scene.image_path or "", Timerange(visual_start, visual_duration))
+        if cfg.ken_burns:
+            move = KEN_BURNS_MOVES[(index - 1) % len(KEN_BURNS_MOVES)]
+            apply_ken_burns(video, KeyframeProperty, visual_duration, move)
+        draft.add_segment(video, video_track)
 
         subtitle = TextSegment(
             scene.text, narration_range,
