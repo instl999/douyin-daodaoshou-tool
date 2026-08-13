@@ -264,6 +264,12 @@ python -m ruff check .
 - 只生成静态图片画面，不含图生视频
 - 输出面向剪映专业版的草稿格式，不保证兼容其他剪辑软件
 
+## 许可证
+
+[MIT](LICENSE)。可自由使用、修改和商用，保留版权声明即可。
+
+注意：本项目只包含代码。你自己放进 `assets/` 的音效、音乐和水印，以及生成过程中调用的模型服务，各自适用它们自己的授权条款。
+
 ## 依赖
 
 草稿写入基于 [pyJianYingDraft](https://github.com/GuanYixuan/pyJianYingDraft)。

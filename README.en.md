@@ -266,6 +266,12 @@ Scan for secrets before publishing anyway. If a key was ever committed or sent s
 - Stills only; there is no image-to-video stage
 - Output targets the Jianying Pro draft format; other editors are not guaranteed
 
+## Licence
+
+[MIT](LICENSE). Free to use, modify and sell, as long as the copyright notice travels with it.
+
+Note that this covers the code only. Sound effects, music and watermarks you place in `assets/`, and the model services the tool calls, carry their own terms.
+
 ## Dependencies
 
 Drafts are written with [pyJianYingDraft](https://github.com/GuanYixuan/pyJianYingDraft).
