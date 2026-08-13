@@ -74,6 +74,8 @@ def _scenes(assets: Path) -> list[acd.Scene]:
         acd.Scene(
             text=f"这是第{index}句旁白文案内容",
             image_prompt="a person at a desk",
+            shot_size=("wide", "medium", "close")[index % 3],
+            pause_after=(index == 2),
             cast=["A"],
             audio_path=str(assets / f"{index:02d}.wav"),
             image_path=str(assets / f"{index:02d}.png"),
@@ -114,15 +116,39 @@ def test_narration_starts_after_the_opening_lead(draft):
     assert first["target_timerange"]["start"] == cfg.opening_lead_us
 
 
-def test_visual_track_is_gapless_and_matches_the_narration(draft):
-    cfg, _, tracks = draft
+def test_visual_track_is_gapless_and_covers_the_whole_video(draft):
+    cfg, content, tracks = draft
     previous_end = 0
     for segment in _sorted_segments(tracks["visuals"]):
         start = segment["target_timerange"]["start"]
-        assert start == previous_end, f"gap or overlap at {start}us"
+        assert start == previous_end, f"gap or overlap at {start}us -- a gap would show as black"
         previous_end = start + segment["target_timerange"]["duration"]
-    expected = cfg.opening_lead_us + sum(round(seconds * SECOND) for seconds in SCENE_SECONDS)
+    expected = (cfg.opening_lead_us
+                + sum(round(seconds * SECOND) for seconds in SCENE_SECONDS)
+                + cfg.paragraph_pause_us      # one scene is marked pause_after
+                + cfg.ending_hold_us)
     assert abs(previous_end - expected) < SECOND // 10
+    assert abs(content["duration"] - expected) < SECOND // 10
+
+
+def test_the_picture_holds_after_the_last_word(draft):
+    """The video must not stop dead on the final syllable."""
+    cfg, _, tracks = draft
+    last_visual = _sorted_segments(tracks["visuals"])[-1]
+    last_caption = _sorted_segments(tracks[acd.NARRATION_SUBTITLE_TRACK])[-1]
+    visual_end = last_visual["target_timerange"]["start"] + last_visual["target_timerange"]["duration"]
+    caption_end = last_caption["target_timerange"]["start"] + last_caption["target_timerange"]["duration"]
+    assert visual_end - caption_end == pytest.approx(cfg.ending_hold_us, abs=SECOND // 20)
+
+
+def test_a_paragraph_pause_appears_between_two_captions(draft):
+    cfg, _, tracks = draft
+    captions = _sorted_segments(tracks[acd.NARRATION_SUBTITLE_TRACK])
+    gaps = [later["target_timerange"]["start"]
+            - (earlier["target_timerange"]["start"] + earlier["target_timerange"]["duration"])
+            for earlier, later in zip(captions, captions[1:], strict=False)]
+    assert max(gaps) == pytest.approx(cfg.paragraph_pause_us, abs=SECOND // 20)
+    assert gaps.count(0) == len(gaps) - 1, "only the marked scene should be followed by a pause"
 
 
 def test_one_image_is_one_uninterrupted_segment(draft):
@@ -132,7 +158,9 @@ def test_one_image_is_one_uninterrupted_segment(draft):
     assert len(visuals) == len(SCENE_SECONDS)
 
     expected = [round(seconds * SECOND) for seconds in SCENE_SECONDS]
-    expected[0] += cfg.opening_lead_us  # the first still covers the opening lead
+    expected[0] += cfg.opening_lead_us      # the first still covers the opening lead
+    expected[1] += cfg.paragraph_pause_us   # and each still covers the pause after it
+    expected[-1] += cfg.ending_hold_us      # and the last one holds at the end
     for segment, want in zip(visuals, expected, strict=True):
         got = segment["target_timerange"]["duration"]
         assert abs(got - want) < SECOND // 20, "a scene's image was cut into more than one shot"
@@ -177,11 +205,19 @@ def test_bgm_loops_and_fades_at_both_ends(draft):
     assert fade_of(segments[-1])["fade_out_duration"] > 0, "the video must not end on a hard cut"
 
 
-def test_bgm_is_quiet_enough_to_sit_under_narration(draft):
+def test_bgm_ducks_under_speech_and_lifts_in_the_gaps(draft):
+    """Levels live in volume keyframes; the static volume stays at 1.0 so the
+    result is right whether Jianying replaces or multiplies it."""
     cfg, _, tracks = draft
     assert cfg.bgm_volume <= 0.2
+    levels = []
     for segment in tracks["BGM"]["segments"]:
-        assert segment["volume"] <= 0.2
+        assert segment["volume"] == 1.0
+        keyframes = [kf for kf in segment["common_keyframes"] if kf["property_type"] == "KFTypeVolume"]
+        assert keyframes, "every BGM segment needs keyframes, or it plays at full volume"
+        levels += [point["values"][0] for point in keyframes[0]["keyframe_list"]]
+    assert min(levels) == pytest.approx(cfg.bgm_volume)
+    assert max(levels) == pytest.approx(max(cfg.bgm_volume, cfg.bgm_lift_volume))
 
 
 def test_title_sits_in_the_upper_half(draft):
@@ -221,9 +257,20 @@ def test_only_the_expected_tracks_exist(draft):
     """Guards against a keyword or image-to-video track creeping back in."""
     _, _, tracks = draft
     assert set(tracks) == {
-        "visuals", "voiceover", "opening_sfx", "watermark",
-        acd.NARRATION_SUBTITLE_TRACK, acd.TITLE_OVERLAY_TRACK, "BGM",
+        "visuals", "voiceover", "opening_sfx", "watermark", "BGM",
+        acd.NARRATION_SUBTITLE_TRACK, acd.TITLE_OVERLAY_TRACK, acd.COLOR_GRADE_TRACK,
     }
+
+
+def test_one_colour_grade_spans_the_whole_video(draft):
+    """Independently generated panels drift; a single pass pulls them together."""
+    cfg, content, tracks = draft
+    segments = tracks[acd.COLOR_GRADE_TRACK]["segments"]
+    assert len(segments) == 1
+    assert segments[0]["target_timerange"]["start"] == 0
+    assert segments[0]["target_timerange"]["duration"] == content["duration"]
+    intensity = content["materials"]["effects"][0]["value"]
+    assert intensity == pytest.approx(cfg.color_grade_intensity / 100.0)
 
 
 def test_style_presets_are_selectable(monkeypatch, workspace):

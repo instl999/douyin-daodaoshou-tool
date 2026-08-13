@@ -62,8 +62,8 @@ STYLE_PRESETS = {
         "flat colour fills with soft airbrushed shading and almost no gradients, muted low-saturation palette of "
         "dusty blue-grey, warm beige, soft olive and pale peach skin, gentle rosy blush on cheeks and nose, even "
         "soft ambient lighting with low contrast and no dramatic shadows or rim light, simple uncluttered domestic "
-        "or street interior with only a few clearly drawn props and a plain wall, medium two-shot framing with "
-        "generous negative space, clean 2D digital illustration with a subtle warm printed-paper cast, "
+        "or street interior with only a few clearly drawn props and a plain wall, clean 2D digital illustration "
+        "with a subtle warm printed-paper cast, "
         "not photorealistic, no 3D render, no watercolour, no glossy anime highlights, no neon, no chibi, 16:9"
     ),
     # Cleaner and more premium: thinner lines, softer rendering, closer to a
@@ -88,15 +88,35 @@ STYLE_PRESETS = {
 }
 DEFAULT_STYLE_PRESET = "story"
 
+# Framing is per scene, not part of the art direction: thirty medium shots in a
+# row is the fastest way to make a video feel monotonous, however good the
+# style is.
+SHOT_SIZES = {
+    "wide": (
+        "Wide establishing shot: the figures are small in the frame, the whole room or street is visible around "
+        "them, generous headroom, the setting doing as much work as the people."
+    ),
+    "medium": (
+        "Medium shot from roughly the waist up: one or two figures fill the middle of the frame, enough background "
+        "to read the place but not more."
+    ),
+    "close": (
+        "Close-up: the face and shoulders fill the frame, the expression is the subject, the background reduced to "
+        "a few simple shapes well out of focus of attention."
+    ),
+}
+DEFAULT_SHOT_SIZE = "medium"
+
 MAX_COPY_CHARACTERS = 1800
 DEFAULT_SCENE_CHARACTERS = 22
 MIN_SCENE_CHARACTERS = 8
 DEFAULT_IMAGE_CONCURRENCY = 3
 MAX_IMAGE_CONCURRENCY = 8
-MANIFEST_VERSION = 4
+MANIFEST_VERSION = 5
 
 NARRATION_SUBTITLE_TRACK = "narration_subtitles"
 TITLE_OVERLAY_TRACK = "title_overlay"
+COLOR_GRADE_TRACK = "grade"
 
 DEFAULT_NARRATION_SUBTITLE_Y = -700
 DEFAULT_TITLE_Y = 520
@@ -153,13 +173,30 @@ class Character:
 class Scene:
     text: str
     image_prompt: str
+    shot_size: str = DEFAULT_SHOT_SIZE
+    pause_after: bool = False
     cast: list[str] = field(default_factory=list)
     audio_path: str | None = None
     image_path: str | None = None
     duration_us: int | None = None
 
 
-SCENE_FIELDS = ("text", "image_prompt", "cast", "audio_path", "image_path", "duration_us")
+SCENE_FIELDS = ("text", "image_prompt", "shot_size", "pause_after", "cast",
+                "audio_path", "image_path", "duration_us")
+
+
+@dataclass
+class SceneTiming:
+    """Where one scene's narration and picture sit on the timeline."""
+
+    narration_start: int
+    narration_duration: int
+    visual_start: int
+    visual_duration: int
+
+    @property
+    def narration_end(self) -> int:
+        return self.narration_start + self.narration_duration
 
 
 # ------------------------------------------------------------ environment ----
@@ -316,7 +353,13 @@ class Config:
     opening_lead_us: int
     bgm_path: Path | None
     bgm_volume: float
+    bgm_lift_volume: float
+    bgm_ramp_us: int
+    paragraph_pause_us: int
+    ending_hold_us: int
     watermark_path: Path | None
+    color_grade: str
+    color_grade_intensity: float
 
     # Visual layout
     subtitle_y: float
@@ -400,7 +443,15 @@ class Config:
             opening_lead_us=round(bounded_env_float("OPENING_LEAD_SECONDS", 0.8, 0.0, 5.0) * 1_000_000),
             bgm_path=_optional_asset("BGM_PATH", {".mp3", ".wav"}),
             bgm_volume=bounded_env_float("BGM_VOLUME", 0.10, 0.0, 1.0),
+            bgm_lift_volume=bounded_env_float("BGM_LIFT_VOLUME", 0.20, 0.0, 1.0),
+            bgm_ramp_us=round(bounded_env_float("BGM_RAMP_SECONDS", 0.25, 0.05, 2.0) * 1_000_000),
+            paragraph_pause_us=round(
+                bounded_env_float("PARAGRAPH_PAUSE_SECONDS", 0.5, 0.0, 3.0) * 1_000_000
+            ),
+            ending_hold_us=round(bounded_env_float("ENDING_HOLD_SECONDS", 1.8, 0.0, 10.0) * 1_000_000),
             watermark_path=_optional_asset("WATERMARK_PATH", {".png", ".jpg", ".jpeg"}),
+            color_grade=env_value("COLOR_GRADE", "灰调中性"),
+            color_grade_intensity=bounded_env_float("COLOR_GRADE_INTENSITY", 12.0, 0.0, 100.0),
 
             subtitle_y=layout_y(bounded_env_int(
                 "NARRATION_SUBTITLE_Y", DEFAULT_NARRATION_SUBTITLE_Y,
@@ -463,9 +514,14 @@ def describe_configuration(cfg: Config) -> None:
     )
     print(f"Title Y:    transform_y {cfg.title_y:.3f} ({round(CANVAS_HALF_HEIGHT - title_px)} px from the top edge)")
     if cfg.bgm_volume > 0:
-        print(f"BGM volume: {cfg.bgm_volume:.2f} linear ({20 * math.log10(cfg.bgm_volume):.1f} dB)")
+        lift = max(cfg.bgm_volume, cfg.bgm_lift_volume)
+        print(f"BGM volume: {cfg.bgm_volume:.2f} under speech ({20 * math.log10(cfg.bgm_volume):.1f} dB), "
+              f"{lift:.2f} in the gaps")
     else:
         print("BGM volume: muted")
+    print(f"Pauses:     {cfg.paragraph_pause_us / 1e6:.2f}s after a paragraph, "
+          f"{cfg.ending_hold_us / 1e6:.2f}s held at the end")
+    print(f"Colour grade: {cfg.color_grade or 'none'} at {cfg.color_grade_intensity:.0f}%")
     for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR",
                  "NARRATION_SUBTITLE_Y", "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT"):
         print(f"  {name}: {env_source(name)}")
@@ -536,9 +592,11 @@ def compose_image_prompt(cfg: Config, scene: Scene, characters: list[Character])
             "Recurring cast, render these exact people with identical face, hair, build and clothing in "
             f"every panel: {'; '.join(described)}. "
         )
+    framing = SHOT_SIZES.get(scene.shot_size, SHOT_SIZES[DEFAULT_SHOT_SIZE])
     return (
         f"{scene.image_prompt.strip().rstrip('.')}. Usage: one 16:9 Chinese narrative manhua panel matched directly "
         "to this exact subtitle. "
+        f"{framing} "
         f"{cast_block}{style}. Depict the concrete moment, people, action, setting, and emotion described by this subtitle. "
         "Include only the people, objects, and surroundings needed to communicate the complete subtitle; keep the composition natural "
         "and narrative, and do not visually overemphasize one incidental detail. Keep all screens, signs, documents, packaging, and "
@@ -626,8 +684,15 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         "watermarks, subtitles, speech bubbles, or fake interface copy. "
         f"{cast_instruction}"
         "Set \"cast\" on each scene to the ids of the characters visible in that panel, or [] if nobody recurring appears. "
+        "Set \"shot_size\" to vary the framing the way an editor would, never leaving it on one value for long: "
+        "\"wide\" to open a section, establish a place, or carry a sentence about society or the world at large; "
+        "\"medium\" as the default for describing an event; \"close\" for a feeling, a decision, a turn, or a "
+        "conclusion, where the face is the point. Aim for roughly one wide and one close in every four scenes. "
+        "Set \"pause_after\" to true on the scene that ends a paragraph or a complete thought, so the video can "
+        "take a breath there; leave it false inside a paragraph. "
         'Return JSON only: {"characters":[{"id":"A","desc":"English description"}],'
-        '"scenes":[{"text":"Chinese scene copy","image_prompt":"English image prompt","cast":["A"]}]}'
+        '"scenes":[{"text":"Chinese scene copy","image_prompt":"English image prompt",'
+        '"shot_size":"medium","pause_after":false,"cast":["A"]}]}'
     )
 
 
@@ -653,7 +718,13 @@ def scenes_from_payload(data: dict[str, Any]) -> list[Scene]:
             continue
         raw_cast = item.get("cast")
         cast = [str(cid).strip() for cid in raw_cast if str(cid).strip()] if isinstance(raw_cast, list) else []
-        scenes.append(Scene(text=text.strip(), image_prompt=image_prompt.strip(), cast=cast))
+        shot_size = item.get("shot_size")
+        shot_size = shot_size.strip().lower() if isinstance(shot_size, str) else ""
+        if shot_size not in SHOT_SIZES:
+            shot_size = DEFAULT_SHOT_SIZE
+        scenes.append(Scene(text=text.strip(), image_prompt=image_prompt.strip(),
+                            shot_size=shot_size, pause_after=bool(item.get("pause_after")),
+                            cast=cast))
     return scenes
 
 
@@ -938,6 +1009,7 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         AudioSegment,
         ClipSettings,
         DraftFolder,
+        FilterType,
         FontType,
         KeyframeProperty,
         TextBackground,
@@ -960,6 +1032,10 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         None if cfg.title_animation.lower() in {"", "none", "off"}
         else resolve_enum(TextIntro, cfg.title_animation, "TITLE_ANIMATION")
     )
+    grade = (
+        None if cfg.color_grade.lower() in {"", "none", "off"} or not cfg.color_grade_intensity
+        else resolve_enum(FilterType, cfg.color_grade, "COLOR_GRADE")
+    )
 
     draft = DraftFolder(str(cfg.draft_dir)).create_draft(
         draft_name, CANVAS_WIDTH, CANVAS_HEIGHT, fps=30, allow_replace=replace
@@ -974,6 +1050,7 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
     title_overlay_track = draft.append_track(TrackSpec(TrackType.text, TITLE_OVERLAY_TRACK))
     bgm_material = AudioMaterial(str(cfg.bgm_path)) if cfg.bgm_path else None
     bgm_track = draft.append_track(TrackSpec(TrackType.audio, "BGM")) if bgm_material else None
+    grade_track = draft.append_track(TrackSpec(TrackType.filter, COLOR_GRADE_TRACK)) if grade else None
 
     subtitle_font = FontType["特黑体"]
     if cfg.subtitle_style == "box":
@@ -994,22 +1071,28 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
             None,
         )
 
-    cursor = cfg.opening_lead_us
-    for index, scene in enumerate(scenes, 1):
-        audio = AudioMaterial(scene.audio_path or "")
-        narration_range = Timerange(cursor, audio.duration)
-        # The first still is on screen from frame zero so the opening sound
-        # effect and title do not play over black.
-        visual_start = 0 if index == 1 else cursor
-        visual_duration = audio.duration + (cfg.opening_lead_us if index == 1 else 0)
+    materials = [AudioMaterial(scene.audio_path or "") for scene in scenes]
+    for scene, material in zip(scenes, materials, strict=True):
+        scene.duration_us = material.duration
+    timings, total_duration = plan_timeline(
+        [material.duration for material in materials],
+        [scene.pause_after for scene in scenes],
+        cfg.opening_lead_us, cfg.paragraph_pause_us, cfg.ending_hold_us,
+    )
+
+    for index, (scene, audio, timing) in enumerate(zip(scenes, materials, timings, strict=True), 1):
+        narration_range = Timerange(timing.narration_start, timing.narration_duration)
 
         # One image, one uninterrupted segment. Scenes are never split, and the
         # cut into the next scene is hard: no transition, no intro animation.
-        # All of the motion comes from the keyframed camera move.
-        video = VideoSegment(scene.image_path or "", Timerange(visual_start, visual_duration))
+        # All of the motion comes from the keyframed camera move. The picture
+        # also covers the pause after its scene and the hold at the end, so a
+        # breath never shows as a black frame.
+        video = VideoSegment(scene.image_path or "",
+                             Timerange(timing.visual_start, timing.visual_duration))
         if cfg.ken_burns_rate > 0:
             move = KEN_BURNS_MOVES[(index - 1) % len(KEN_BURNS_MOVES)]
-            apply_ken_burns(video, KeyframeProperty, visual_duration, move, cfg.ken_burns_rate)
+            apply_ken_burns(video, KeyframeProperty, timing.visual_duration, move, cfg.ken_burns_rate)
         draft.add_segment(video, video_track)
 
         subtitle = TextSegment(
@@ -1028,10 +1111,13 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         draft.add_segment(subtitle, narration_subtitle_track)
 
         draft.add_segment(AudioSegment(audio, narration_range), audio_track)
-        scene.duration_us = audio.duration
-        cursor += audio.duration
 
-    total_duration = cursor
+    if grade_track is not None and grade is not None:
+        # One grade across the whole video. Independently generated panels drift
+        # in temperature and brightness; a single light pass pulls them together.
+        draft.add_filter(grade, Timerange(0, total_duration), COLOR_GRADE_TRACK,
+                         cfg.color_grade_intensity)
+
     add_opening_sound(cfg, draft, opening_sfx_track, total_duration)
     if watermark_track is not None and cfg.watermark_path:
         watermark = VideoSegment(
@@ -1042,7 +1128,8 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
 
     add_title(cfg, draft, title_overlay_track, title, total_duration, title_intro, subtitle_font)
     if bgm_material is not None and bgm_track is not None:
-        add_bgm(cfg, draft, bgm_track, bgm_material, total_duration)
+        speech = [(timing.narration_start, timing.narration_end) for timing in timings]
+        add_bgm(cfg, draft, bgm_track, bgm_material, total_duration, speech)
 
     draft.save()
     return cfg.draft_dir / draft_name
@@ -1083,6 +1170,81 @@ def add_title(cfg: Config, draft: Any, track: Any, title: str, total_duration: i
     draft.add_segment(segment, track)
 
 
+def plan_timeline(durations: list[int], pauses: list[bool], lead_us: int,
+                  pause_us: int, hold_us: int) -> tuple[list[SceneTiming], int]:
+    """Lay out narration and picture, with room to breathe.
+
+    A scene marked `pause_after` is followed by a beat of BGM only, so the
+    paragraph breaks in the copy are audible instead of every sentence running
+    into the next. The outgoing picture holds through that beat rather than
+    cutting to black, and the last picture holds again at the end so the video
+    does not stop dead on the final syllable.
+    """
+    timings: list[SceneTiming] = []
+    cursor = lead_us
+    last = len(durations) - 1
+    for index, duration in enumerate(durations):
+        gap = pause_us if (pauses[index] and index != last) else 0
+        hold = hold_us if index == last else 0
+        visual_start = 0 if index == 0 else cursor
+        visual_duration = duration + gap + hold + (lead_us if index == 0 else 0)
+        timings.append(SceneTiming(cursor, duration, visual_start, visual_duration))
+        cursor += duration + gap
+    return timings, cursor + (hold_us if durations else 0)
+
+
+def bgm_volume_envelope(speech_spans: list[tuple[int, int]], total_us: int,
+                        base: float, lift: float, ramp_us: int) -> list[tuple[int, float]]:
+    """Absolute (time, volume) points: quiet under speech, lifted in the gaps.
+
+    Head and tail fades are left to the loop plan's fades, which multiply with
+    these levels, so this function only has to express the ducking.
+    """
+    if total_us <= 0:
+        return []
+    if not speech_spans:
+        return [(0, lift), (total_us, lift)]
+
+    points: list[tuple[int, float]] = []
+
+    def push(time: float, volume: float) -> None:
+        moment = max(0, min(total_us, round(time)))
+        if points and moment <= points[-1][0]:
+            if moment == points[-1][0]:
+                points[-1] = (moment, volume)
+            return
+        points.append((moment, volume))
+
+    # Only lift where there is genuinely room for the ramp, otherwise the music
+    # would still be climbing when the next line starts.
+    push(0, lift if speech_spans[0][0] >= 2 * ramp_us else base)
+    for index, (start, end) in enumerate(speech_spans):
+        previous_end = speech_spans[index - 1][1] if index else 0
+        next_start = speech_spans[index + 1][0] if index + 1 < len(speech_spans) else total_us
+        if start - previous_end >= 2 * ramp_us:
+            push(start - ramp_us, lift)
+        push(start, base)
+        push(end, base)
+        if next_start - end >= 2 * ramp_us:
+            push(end + ramp_us, lift)
+    push(total_us, points[-1][1])
+    return points
+
+
+def sample_envelope(points: list[tuple[int, float]], moment: int) -> float:
+    """Linear interpolation, so a loop seam lands on the level it should."""
+    if not points:
+        return 0.0
+    if moment <= points[0][0]:
+        return points[0][1]
+    for (t0, v0), (t1, v1) in zip(points, points[1:], strict=False):
+        if t0 <= moment <= t1:
+            if t1 == t0:
+                return v1
+            return v0 + (v1 - v0) * (moment - t0) / (t1 - t0)
+    return points[-1][1]
+
+
 def bgm_loop_plan(total_duration: int, material_duration: int) -> list[tuple[int, int, int, int]]:
     """Lay out the looped BGM as (start, duration, fade_in, fade_out).
 
@@ -1107,15 +1269,29 @@ def bgm_loop_plan(total_duration: int, material_duration: int) -> list[tuple[int
     return plan
 
 
-def add_bgm(cfg: Config, draft: Any, track: Any, material: Any, total_duration: int) -> None:
-    """Loop the BGM under the narration, fading in at the head and out at the tail."""
+def add_bgm(cfg: Config, draft: Any, track: Any, material: Any, total_duration: int,
+            speech_spans: list[tuple[int, int]]) -> None:
+    """Loop the BGM under the narration, ducked under speech and lifted in the gaps.
+
+    Volume keyframes carry the level and the segment volume is left at 1.0, so
+    the result is the same whether Jianying treats keyframes as replacing the
+    static volume or as multiplying it. The loop plan's fades multiply on top
+    and handle the head, the tail and the seams.
+    """
     from pyJianYingDraft import AudioSegment, Timerange
 
     if cfg.bgm_volume <= 0:
         return
+    lift = max(cfg.bgm_volume, cfg.bgm_lift_volume)
+    envelope = bgm_volume_envelope(speech_spans, total_duration, cfg.bgm_volume, lift, cfg.bgm_ramp_us)
     for start, duration, fade_in, fade_out in bgm_loop_plan(total_duration, material.duration):
         segment = AudioSegment(material, Timerange(start, duration),
-                               source_timerange=Timerange(0, duration), volume=cfg.bgm_volume)
+                               source_timerange=Timerange(0, duration), volume=1.0)
+        segment.add_keyframe(0, sample_envelope(envelope, start))
+        for moment, volume in envelope:
+            if start < moment < start + duration:
+                segment.add_keyframe(moment - start, volume)
+        segment.add_keyframe(duration, sample_envelope(envelope, start + duration))
         segment.add_fade(fade_in, fade_out)
         draft.add_segment(segment, track)
 
