@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import sys
 from pathlib import Path
 
@@ -33,10 +32,6 @@ def test_default_subtitle_y_is_inside_the_frame():
 def test_layout_y_clamps_to_the_safe_area():
     assert acd.layout_y(-100_000) == -acd.SAFE_NORMALIZED_Y
     assert acd.layout_y(100_000) == acd.SAFE_NORMALIZED_Y
-
-
-def test_keyword_sits_above_the_subtitle():
-    assert acd.layout_y(acd.DEFAULT_KEYWORD_Y) > acd.layout_y(acd.DEFAULT_NARRATION_SUBTITLE_Y)
 
 
 def test_title_sits_in_the_upper_half():
@@ -75,53 +70,6 @@ def test_ken_burns_moves_never_start_below_full_frame():
     for scale_start, scale_end, *_ in acd.KEN_BURNS_MOVES + (acd.PUNCH_IN_MOVE,):
         assert scale_start > 1.0
         assert scale_end > 1.0
-
-
-# --------------------------------------------------------------------- i2v --
-
-def test_i2v_requests_more_than_the_narration_needs():
-    """Frame rounding makes the returned clip slightly short of the request."""
-    assert acd.i2v_duration_seconds(4_980_000) == 6
-    assert acd.i2v_duration_seconds(5 * SECOND) == 6
-
-
-def test_i2v_duration_is_bounded():
-    assert acd.i2v_duration_seconds(1) == 2
-    assert acd.i2v_duration_seconds(60 * SECOND) == 15
-
-
-def test_auto_i2v_selection_covers_the_hook_and_the_ending():
-    indices = acd.select_i2v_scene_indices(20, "auto", 5)
-    assert indices[0] == 1
-    assert indices[-1] == 20
-    assert len(indices) == 5
-    assert indices == sorted(set(indices))
-
-
-def test_auto_i2v_selection_spreads_out():
-    """Motion must not stop partway through, as the old fixed (2,3,4,5,6) did."""
-    indices = acd.select_i2v_scene_indices(20, "auto", 5)
-    gaps = [b - a for a, b in itertools.pairwise(indices)]
-    assert max(gaps) - min(gaps) <= 1
-
-
-def test_auto_i2v_selection_handles_short_videos():
-    assert acd.select_i2v_scene_indices(3, "auto", 5) == [1, 2, 3]
-    assert acd.select_i2v_scene_indices(1, "auto", 5) == [1]
-
-
-def test_explicit_i2v_selection_is_taken_literally():
-    assert acd.select_i2v_scene_indices(20, "7, 3,3, 99", 2) == [3, 7]
-
-
-def test_i2v_can_be_turned_off():
-    assert acd.select_i2v_scene_indices(20, "none", 5) == []
-    assert acd.select_i2v_scene_indices(20, "auto", 0) == []
-
-
-def test_invalid_i2v_spec_is_rejected():
-    with pytest.raises(RuntimeError, match="I2V_SCENES"):
-        acd.select_i2v_scene_indices(20, "first,last", 5)
 
 
 # --------------------------------------------------------------------- bgm --
@@ -207,15 +155,6 @@ def test_malformed_scene_items_are_skipped_not_crashed():
     assert scenes[0].text == "真正的一句话"
 
 
-def test_keyword_must_appear_verbatim_in_the_subtitle():
-    scenes = acd.scenes_from_payload({"scenes": [
-        {"text": "今天整理了桌面", "image_prompt": "x", "keyword": "桌面"},
-        {"text": "今天整理了桌面", "image_prompt": "x", "keyword": "效率"},
-    ]})
-    assert scenes[0].keyword == "桌面"
-    assert scenes[1].keyword is None
-
-
 def test_cast_is_normalised_to_a_list_of_strings():
     scenes = acd.scenes_from_payload({"scenes": [
         {"text": "一句话", "image_prompt": "x", "cast": ["A", " ", "B"]},
@@ -250,9 +189,15 @@ def test_env_values_parse_as_expected(raw, expected):
     assert acd._parse_env_value(raw) == expected
 
 
-def test_style_prompt_survives_parsing():
-    """The default style prompt is long and comma-heavy; it must come back whole."""
-    assert acd._parse_env_value(acd.STYLE) == acd.STYLE
+@pytest.mark.parametrize("name", sorted(acd.STYLE_PRESETS))
+def test_style_prompts_survive_parsing(name):
+    """Style prompts are long and comma-heavy; they must come back whole."""
+    prompt = acd.STYLE_PRESETS[name]
+    assert acd._parse_env_value(prompt) == prompt
+
+
+def test_default_style_preset_exists():
+    assert acd.DEFAULT_STYLE_PRESET in acd.STYLE_PRESETS
 
 
 # ------------------------------------------------------------------ prompt --

@@ -74,7 +74,6 @@ def _scenes(assets: Path) -> list[acd.Scene]:
         acd.Scene(
             text=f"这是第{index}句旁白文案内容",
             image_prompt="a person at a desk",
-            keyword=f"第{index}句" if index % 2 else None,
             cast=["A"],
             audio_path=str(assets / f"{index:02d}.wav"),
             image_path=str(assets / f"{index:02d}.png"),
@@ -86,7 +85,7 @@ def _scenes(assets: Path) -> list[acd.Scene]:
 @pytest.fixture
 def draft(workspace):
     assets, drafts = workspace
-    cfg = acd.Config.load(skip_i2v=True)
+    cfg = acd.Config.load()
     path = acd.build_draft(cfg, _scenes(assets), "pytest_draft", replace=False, title="测试标题")
     content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
     return cfg, content, {track["name"]: track for track in content["tracks"]}
@@ -171,19 +170,6 @@ def test_bgm_is_quiet_enough_to_sit_under_narration(draft):
         assert segment["volume"] <= 0.2
 
 
-def test_keyword_track_only_carries_scenes_that_have_one(draft):
-    _, _, tracks = draft
-    expected = sum(1 for index in range(1, len(SCENE_SECONDS) + 1) if index % 2)
-    assert len(tracks[acd.KEYWORD_OVERLAY_TRACK]["segments"]) == expected
-
-
-def test_keyword_sits_above_the_subtitle(draft):
-    _, _, tracks = draft
-    subtitle_y = tracks[acd.NARRATION_SUBTITLE_TRACK]["segments"][0]["clip"]["transform"]["y"]
-    keyword_y = tracks[acd.KEYWORD_OVERLAY_TRACK]["segments"][0]["clip"]["transform"]["y"]
-    assert keyword_y > subtitle_y
-
-
 def test_title_sits_in_the_upper_half(draft):
     _, _, tracks = draft
     assert tracks[acd.TITLE_OVERLAY_TRACK]["segments"][0]["clip"]["transform"]["y"] > 0
@@ -192,48 +178,48 @@ def test_title_sits_in_the_upper_half(draft):
 def test_text_layers_are_animated(draft):
     _, content, tracks = draft
     animations = {item["id"] for item in content["materials"].get("material_animations", [])}
-    for name in (acd.NARRATION_SUBTITLE_TRACK, acd.KEYWORD_OVERLAY_TRACK, acd.TITLE_OVERLAY_TRACK):
+    for name in (acd.NARRATION_SUBTITLE_TRACK, acd.TITLE_OVERLAY_TRACK):
         for segment in tracks[name]["segments"]:
             assert animations & set(segment["extra_material_refs"]), f"{name} segment has no intro animation"
 
 
 def test_existing_draft_is_not_overwritten_without_replace(workspace):
     assets, _ = workspace
-    cfg = acd.Config.load(skip_i2v=True)
+    cfg = acd.Config.load()
     acd.build_draft(cfg, _scenes(assets), "guarded", replace=False, title="标题")
     with pytest.raises(RuntimeError, match="Draft already exists"):
         acd.validate_draft_target(cfg, "guarded", replace=False)
     acd.validate_draft_target(cfg, "guarded", replace=True)
 
 
-def _clip(path: Path, seconds: float) -> Path:
-    """An animated GIF is the cheapest thing pyJianYingDraft accepts as video."""
-    from PIL import Image
+def test_shots_have_no_transition_or_intro_animation(draft):
+    """Cuts are hard: only the keyframed camera move carries motion."""
+    _, content, tracks = draft
+    animations = {item["id"] for item in content["materials"].get("material_animations", [])}
+    transitions = {item["id"] for item in content["materials"].get("transitions", [])}
+    for segment in tracks["visuals"]["segments"]:
+        refs = set(segment["extra_material_refs"])
+        assert not (refs & animations), "shots must not carry an intro/outro animation"
+        assert not (refs & transitions), "shots must not carry a transition"
 
-    frames = [Image.new("RGB", (320, 180), (30, 50, 90)) for _ in range(int(seconds * 10))]
-    frames[0].save(path, save_all=True, append_images=frames[1:], duration=100, loop=0)
-    return path
+
+def test_only_the_expected_tracks_exist(draft):
+    """Guards against a keyword or image-to-video track creeping back in."""
+    _, _, tracks = draft
+    assert set(tracks) == {
+        "visuals", "voiceover", "opening_sfx", "watermark",
+        acd.NARRATION_SUBTITLE_TRACK, acd.TITLE_OVERLAY_TRACK, "BGM",
+    }
 
 
-def test_short_dynamic_clip_does_not_abort_the_build(workspace):
-    """A clip shorter than its narration used to raise, which made every later
-    --resume fail forever on assets that had already been paid for."""
-    assets, _ = workspace
-    cfg = acd.Config.load(skip_i2v=True)
-    scenes = _scenes(assets)
-    # 2.0s of video under a 2.1s narration, the frame-rounding case.
-    scenes[0].video_path = str(_clip(assets / "short.gif", 2.0))
+def test_style_presets_are_selectable(monkeypatch, workspace):
+    monkeypatch.setenv("IMAGE_STYLE_PRESET", "webtoon")
+    assert acd.Config.load().image_style_prompt == acd.STYLE_PRESETS["webtoon"]
+    monkeypatch.setenv("IMAGE_STYLE_PROMPT", "my own style")
+    assert acd.Config.load().image_style_prompt == "my own style"
 
-    path = acd.build_draft(cfg, scenes, "short_clip", replace=False, title="标题")
 
-    content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
-    tracks = {track["name"]: track for track in content["tracks"]}
-    visuals = _sorted_segments(tracks["visuals"])
-    # The clip plays for what it has, then the still covers the remainder, so
-    # the track stays gapless and nothing drifts out of sync.
-    assert visuals[0]["target_timerange"]["duration"] == 2 * SECOND
-    assert visuals[1]["target_timerange"]["start"] == 2 * SECOND
-    previous_end = 0
-    for segment in visuals:
-        assert segment["target_timerange"]["start"] == previous_end
-        previous_end = segment["target_timerange"]["start"] + segment["target_timerange"]["duration"]
+def test_unknown_style_preset_is_rejected(monkeypatch, workspace):
+    monkeypatch.setenv("IMAGE_STYLE_PRESET", "nonexistent")
+    with pytest.raises(RuntimeError, match="IMAGE_STYLE_PRESET"):
+        acd.Config.load()
