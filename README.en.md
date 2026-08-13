@@ -14,6 +14,7 @@ Turns Chinese copy into an editable Jianying (CapCut China) draft: AI storyboard
 - **Framing varies**: the storyboard model picks wide / medium / close per scene — wide to establish, close for the feeling and the conclusion — instead of thirty shots at the same camera distance.
 - **The video breathes**: a beat of BGM only after each paragraph (the outgoing picture holds through it), the music ducked under speech and lifted in the gaps, and the last picture held for 1.8s after the final word.
 - **One colour grade** across the whole video, pulling independently generated panels into the same look.
+- **Stable caption baseline**: a wrapped caption is raised by half a line so its bottom line stays put, instead of the whole block jumping as the line count changes.
 - **Camera movement**: five Ken Burns moves cycle one per scene. How far a move travels is derived from the shot's length (3.5% of frame per second by default), so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan is always kept inside the headroom the scale provides, so it never exposes the frame edge.
 - **Every cut is hard** — no transitions, no intro animations. Motion comes entirely from the camera move.
 - Stills are generated 3-way concurrent by default. One failure does not discard the successful images; `--resume` retries only what is missing.
@@ -76,6 +77,7 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. This is the only pacing control: lower means faster cuts, more images and higher cost. |
 | `NARRATION_SUBTITLE_Y` | `-700` | Caption position; see the coordinate note below. |
 | `BGM_VOLUME` | `0.10` | Linear BGM gain (about -20 dB). |
+| `SUBTITLE_EM_PX` | `9.8` | Wrap estimate; the one number to calibrate if wrapped captions still drift. |
 | `TITLE_STYLE` | `paper` | Title colours: `paper` (drawn from the art palette) / `red` / `white` / `gold`. |
 | `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second. Raise for a more obvious move. |
 | `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph. |

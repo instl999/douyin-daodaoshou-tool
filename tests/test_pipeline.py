@@ -38,6 +38,55 @@ def test_title_sits_in_the_upper_half():
     assert acd.layout_y(acd.DEFAULT_TITLE_Y) > 0
 
 
+# --------------------------------------------------------- caption wrapping --
+
+def test_short_caption_is_one_line():
+    assert acd.subtitle_line_count("短句", 8.0, 0.88, acd.DEFAULT_SUBTITLE_EM_PX) == 1
+
+
+def test_a_typical_scene_still_fits_one_line():
+    """SCENE_CHARACTERS_PER_IMAGE defaults to 22, so that length must not wrap."""
+    text = "字" * 21
+    assert acd.subtitle_line_count(text, 8.0, 0.88, acd.DEFAULT_SUBTITLE_EM_PX) == 1
+
+
+def test_a_long_caption_wraps():
+    assert acd.subtitle_line_count("字" * 45, 8.0, 0.88, acd.DEFAULT_SUBTITLE_EM_PX) >= 2
+
+
+def test_a_bigger_font_wraps_sooner():
+    text = "字" * 21
+    big = acd.subtitle_line_count(text, 14.0, 0.88, acd.DEFAULT_SUBTITLE_EM_PX)
+    small = acd.subtitle_line_count(text, 8.0, 0.88, acd.DEFAULT_SUBTITLE_EM_PX)
+    assert big > small
+
+
+def test_one_line_captions_keep_the_configured_position():
+    base = acd.layout_y(acd.DEFAULT_NARRATION_SUBTITLE_Y)
+    assert acd.subtitle_baseline_y(base, 1, 8.0, acd.DEFAULT_SUBTITLE_EM_PX) == base
+
+
+def test_wrapped_captions_are_raised_so_the_bottom_line_holds():
+    """The block is centre-anchored, so extra lines must push it up, not down."""
+    base = acd.layout_y(acd.DEFAULT_NARRATION_SUBTITLE_Y)
+    two = acd.subtitle_baseline_y(base, 2, 8.0, acd.DEFAULT_SUBTITLE_EM_PX)
+    three = acd.subtitle_baseline_y(base, 3, 8.0, acd.DEFAULT_SUBTITLE_EM_PX)
+    assert two > base and three > two
+    # Each extra line raises the centre by exactly half a line.
+    assert (three - two) == pytest.approx(two - base)
+
+
+def test_the_compensated_position_stays_on_screen():
+    base = acd.layout_y(acd.DEFAULT_NARRATION_SUBTITLE_Y)
+    for lines in range(1, 8):
+        y = acd.subtitle_baseline_y(base, lines, 14.0, acd.DEFAULT_SUBTITLE_EM_PX)
+        assert -1.0 < y < 1.0
+
+
+def test_empty_caption_does_not_divide_by_zero():
+    assert acd.subtitle_line_count("   ", 8.0, 0.88, acd.DEFAULT_SUBTITLE_EM_PX) == 1
+
+
 # ------------------------------------------------------------------- shots --
 
 DURATIONS = (1.6, 2.5, 3.5, 5.4, 6.2, 12.0)
