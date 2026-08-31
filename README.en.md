@@ -2,6 +2,11 @@
 
 Recreates the video format of the Douyin blogger "Xinli Daodaoshou" ([creator page](https://v.douyin.com/AYhnYiaH0uo/)): it turns a piece of Chinese copy into an editable Jianying (CapCut China) draft — an AI storyboard, per-line voice-over, one panel per line, then a timeline with visuals, narration, captions, a title, sound effects, BGM and a colour grade already laid out.
 
+> **Ships with Volcengine Ark Agent Plan API support** — storyboard, image
+> generation and voice-over share one `ARK_API_KEY`, all routed through the
+> Agent Plan. Under an Agent Plan subscription, **image generation costs
+> nothing extra**.
+
 It produces a **draft, not a finished video** — every asset and keyframe sits on the timeline, so you can adjust anything by hand and export it yourself.
 
 中文文档：[README.md](README.md)
@@ -73,7 +78,7 @@ This is what separates it from a batch image slideshow.
 - Windows 10/11
 - Python 3.10+
 - Jianying Pro
-- A Volcengine Ark Agent Plan API key (shared by the storyboard, image and speech models)
+- A Volcengine Ark Agent Plan API key (shared by the storyboard, image and speech models; under an Agent Plan subscription, image generation costs nothing extra)
 
 ## Local assets
 
