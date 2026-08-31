@@ -1,12 +1,77 @@
 {
-  "default": "story",
+  "default": "midnight",
   "presets": {
-    "story": "Chinese webtoon manhua panel in the style of popular emotional-story short videos, contemporary Chinese everyday setting, semi-realistic adult characters with slightly caricatured and very readable facial expressions, believable adult proportions, thick even-weight black ink outlines on every figure and prop, flat colour fills with soft airbrushed shading and almost no gradients, muted low-saturation palette of dusty blue-grey, warm beige, soft olive and pale peach skin, gentle rosy blush on cheeks and nose, even soft ambient lighting with low contrast and no dramatic shadows or rim light, simple uncluttered domestic or street interior with only a few clearly drawn props and a plain wall, clean 2D digital illustration with a subtle warm printed-paper cast, not photorealistic, no 3D render, no watercolour, no glossy anime highlights, no neon, no chibi, 16:9",
-    "webtoon": "Korean-style realistic webtoon panel, contemporary Chinese everyday setting, semi-realistic adult faces with natural proportions and subtle expressive acting, thin clean tapered ink linework, smooth soft cel shading with gentle gradients, restrained natural palette of warm neutrals and desaturated blues, soft diffused daylight, shallow depth with a simply rendered background, polished digital illustration, not photorealistic, no 3D render, no watercolour, no heavy outlines, no chibi, 16:9",
-    "cinematic": "Chinese social-realism manhua panel, mature narrative webcomic aesthetic, contemporary Chinese everyday setting, semi-realistic adult faces and believable human anatomy, strongly expressive facial emotions and dramatic but natural body language, bold crisp black ink outlines with varied line weight, flat color fills with hard-edged cel shading, subtle printed-comic texture on skin and clothing, saturated deep navy blue contrasted with muted warm earth tones, high-contrast cinematic lighting, simple clean interior or urban background with clear spatial depth, polished 2D illustration, not photorealistic, no 3D render, no watercolor, no soft pastel anime, no chibi, 16:9",
-    "ghibli": "Studio Ghibli inspired hand-painted anime landscape, nostalgic Japanese animation film look, lush green floating islands drifting above a sea of soft white clouds, a small sailboat between them, warm golden sunset light with a pastel pink and orange sky, gouache and watercolour textures, gentle painterly brushwork, soft diffused light with no harsh shadows, wide peaceful storybook composition, wholesome dreamlike atmosphere, not photorealistic, no 3D render, no neon, no chibi, 16:9",
-    "noir": "Moody cinematic film still, night-time urban China, dramatic red and teal neon light cutting through haze and drifting smoke, a lone middle-aged man in a work jacket or long coat beside a window with venetian blind shadows or crossing a rainy street with headlight trails, wet asphalt reflections, deep blue shadows against warm neon accents, anamorphic lens flare, high-contrast chiaroscuro, desaturated cinematic palette, photorealistic, gritty melancholic big-city atmosphere, no cartoon, no illustration, 16:9",
-    "fantasy": "Cinematic magical realism night scene, a colossal ancient banyan tree with a small wooden house nested among its roots, a lone figure holding a glowing paper lantern walking a stone causeway over still water, drifting fireflies and floating light particles, misty deep-blue night against warm lantern glow, soft volumetric lighting, Chinese fantasy folk-tale atmosphere, painterly photorealism, highly detailed, no cartoon, no text, 16:9",
-    "documentary": "Documentary photograph at a misty Chinese fishing harbour at dawn, a weathered elderly fisherman in work clothes mending a green fishing net on the stone dock, an old wooden fishing boat moored beside him, soft golden morning light filtering through sea fog, muted natural colours, candid photojournalism style, shallow depth of field, subtle 35mm film grain, photorealistic, no cartoon, no illustration, 16:9"
+    "midnight": {
+      "label": "深蓝白描",
+      "prompt": "Single-colour white line illustration on a flat deep midnight-blue ground, the whole panel one continuous pen drawing: every figure, building and object rendered only as clean white contour lines of even weight, volume and shadow built from fine parallel hatching and cross-hatching like a steel engraving, no filled colour areas and no grey wash, the navy itself reading as shadow. Semi-realistic adults with confident anatomy, simple strongly readable silhouettes and clear body language, faces drawn in few lines and barely shaded. One subject, held large and central, with wide empty navy around it and only a horizon or two suggested walls for depth. Exactly one or two elements carry a flat saturated spot colour -- gold, crimson, amber or magenta -- and everything else stays white on navy; a soft glow only where there is a light source. Even fine grain across the whole panel. Editorial, symbolic, calm. Not photorealistic, no 3D render, no full-colour painting, no watercolour, no black outlines, no pale or white background, 16:9",
+      "medium": "a white line drawing on a deep midnight-blue ground",
+      "avoid": "photography, 3D rendering, full-colour painting, or a pale background",
+      "grade": "深蓝电影感",
+      "title": "crimson"
+    },
+    "manhua": {
+      "label": "国漫条漫",
+      "prompt": "Contemporary Chinese webtoon panel, mature emotional-story comic aesthetic, present-day mainland setting. Semi-realistic adults with believable proportions and faces that genuinely act, the expression carrying the sentence. Clean tapered black ink linework, heavier on the outer contour and light inside, flat colour fills with one soft cel shadow and one warm rim light, almost no gradients. Restrained palette of dusty blue-grey, warm beige, soft olive and pale peach skin, a gentle rosy blush on the cheeks. Even soft daylight, low contrast, no theatrical shadows. An ordinary interior or street holding only the few props the moment needs, plain wall behind. Subtle printed-paper grain. Not photorealistic, no 3D render, no watercolour, no glossy anime highlights, no neon, no chibi, 16:9",
+      "medium": "a contemporary Chinese webtoon panel",
+      "avoid": "photography or 3D rendering",
+      "grade": "灰调中性",
+      "title": "paper"
+    },
+    "ink": {
+      "label": "水墨留白",
+      "prompt": "Traditional Chinese ink painting on raw xuan rice paper, brush and black ink only, literati guohua manner. Bold confident wet strokes with visible dry-brush texture and ink bleeding softly into the fibre, tone built from three or four washes running pale grey to solid black, forms suggested rather than outlined and left open at the edges. Vast empty paper as breathing space, the subject set off-centre against a low horizon, distance carried by a paler wash and mist. Human figures small, gestural and anonymous, three or four strokes each, dignified rather than detailed. Warm ivory paper tone with faint fibre texture. Exactly one accent of vermilion red, no bigger than a seal, and no other colour anywhere. Not photorealistic, no 3D render, no colour painting, no pencil, no comic outlines, no written characters or calligraphy, 16:9",
+      "medium": "a Chinese ink-and-wash painting on rice paper",
+      "avoid": "photography, 3D rendering, or full-colour illustration",
+      "grade": "水墨意境",
+      "title": "ink"
+    },
+    "papercut": {
+      "label": "剪纸拼贴",
+      "prompt": "Layered cut-paper collage photographed straight on, everything built from flat shapes scissor-cut from coloured paper and stacked in three or four clearly separated depth planes, each layer casting a soft real drop shadow on the one behind it so the image reads as a physical object. Shapes bold, simplified and geometric, no outlines and no rendering, detail cut away rather than drawn; figures are clean silhouettes with a single cut for an eye or a mouth. Five papers only -- deep teal, warm terracotta, mustard, dusty rose and bone white -- each matte and uncoated with visible fibre and slightly imperfect hand-cut edges. Even soft studio light from the upper left. Graphic, tactile, warm. Not photorealistic, no 3D render, no line art, no gradients inside a shape, no glossy material, 16:9",
+      "medium": "a layered cut-paper collage",
+      "avoid": "photography, 3D rendering, or line-drawn illustration",
+      "grade": "牛皮纸",
+      "title": "paper"
+    },
+    "riso": {
+      "label": "复古套印",
+      "prompt": "Two-colour risograph print on off-white uncoated paper, 1960s screen-printed poster aesthetic. Only two spot inks, fluorescent orange and deep teal, overprinting into a third dark tone where they cross; everywhere else is bare cream paper. Coarse visible halftone dot screens instead of smooth tone, a deliberate registration offset of a millimetre or two so each ink sits slightly beside its shape, uneven roller density, speckle and small print faults. Shapes chunky and heavily simplified into confident mid-century flat forms with no fine detail, faces reduced to a few decisive marks. Bold poster composition, one dominant figure or object, generous empty paper. Not photorealistic, no 3D render, no smooth gradients, no full-colour palette, no digital gloss, 16:9",
+      "medium": "a two-colour risograph poster print",
+      "avoid": "photography, 3D rendering, or full-colour illustration",
+      "grade": "复古工业",
+      "title": "poster"
+    },
+    "gouache": {
+      "label": "水粉绘本",
+      "prompt": "Hand-painted gouache storybook illustration, opaque matte paint on textured cold-press board, visible directional brush strokes and small ridges of dried paint, edges soft and slightly irregular where one colour was laid over another. Warm nostalgic palette of ochre, sage, dusty rose, cream and faded denim blue, every colour mixed rather than pure, low saturation and high value. Gentle late-afternoon light with long soft shadows and a warm glow, no hard specular highlights. Simplified rounded figures in folk-illustration proportions with generous space around them, faces friendly and unfussy. Tender and quiet, the world a little softer than the real one. Not photorealistic, no 3D render, no ink outlines, no anime, no airbrush smoothness, no neon, 16:9",
+      "medium": "a hand-painted gouache storybook illustration",
+      "avoid": "photography or 3D rendering",
+      "grade": "奶油",
+      "title": "paper"
+    },
+    "noir": {
+      "label": "黑白电影",
+      "prompt": "Black-and-white cinematic film still, 1950s film-noir photography on a 40mm anamorphic lens. Pure monochrome with a deep crushed black point and clean specular whites, extreme chiaroscuro: a single hard key from one side, most of the frame in shadow, the subject cut out by a rim of light. Venetian blinds, window frames, railings and smoke throwing hard graphic shadows across faces and walls. Wet streets, rain, cigarette haze and fog catching visible shafts of light. Real adults in period-neutral coats and shirts, tense restrained body language, framed from slightly low or seen through a doorway. Fine silver-halide grain, gentle vignette, slight halation in the highlights. No colour, no cartoon, no illustration, no 3D render, no neon, 16:9",
+      "medium": "a black-and-white film-noir photograph",
+      "avoid": "illustration, cartoon art, or 3D rendering",
+      "grade": "高清黑白",
+      "title": "white"
+    },
+    "neon": {
+      "label": "霓虹夜城",
+      "prompt": "Photorealistic cinematic night frame, contemporary East Asian megacity after rain, fast anamorphic lens shot wide open. The only light is neon and signage -- magenta, cyan, electric blue -- cutting through humid haze, plus one warm sodium practical; everything else falls into deep blue-black shadow. Wet asphalt and glass smearing the signs into long vertical reflections, steam off the vents, headlight trails, horizontal lens flare and soft bloom around every source. One lone modern figure kept small inside a huge frame of towers, walkways and cable runs, seen from behind or in profile, the city doing the talking. Shallow depth of field, heavy bokeh, fine sensor noise, a teal-and-magenta grade. No cartoon, no illustration, no 3D game render, no daylight, 16:9",
+      "medium": "a photorealistic neon-lit night photograph",
+      "avoid": "illustration, cartoon art, or a daylight scene",
+      "grade": "赛博朋克",
+      "title": "electric"
+    },
+    "notebook": {
+      "label": "手绘笔记",
+      "prompt": "Hand-drawn explainer sketch on off-white paper, the look of a well-kept notebook page. Everything drawn with a black felt-tip marker in a loose confident single-weight line, slightly wobbly and clearly human, with small pen overshoots at the corners; shading is quick parallel hatching, never solid fill. Simple but expressive human figures with dot eyes and readable posture, objects reduced to their most recognisable shape. One warm yellow highlighter swipe sits roughly behind the single most important element, and a red pen is used sparingly for circles, ticks and emphasis marks. Freehand dashed arrows and hand-drawn frames connect the ideas, the layout airy and organised with plenty of empty paper. Faint paper grain, soft warm shadow at the edges. Not photorealistic, no 3D render, no painted colour, no dark background, no printed text or letterforms, 16:9",
+      "medium": "a hand-drawn marker sketch on off-white paper",
+      "avoid": "photography, 3D rendering, or painted full-colour illustration",
+      "grade": "高清明亮",
+      "title": "marker"
+    }
   }
 }

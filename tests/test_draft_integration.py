@@ -88,7 +88,10 @@ def _scenes(assets: Path) -> list[acd.Scene]:
 def draft(workspace):
     assets, drafts = workspace
     cfg = acd.Config.load()
-    path = acd.build_draft(cfg, _scenes(assets), "pytest_draft", replace=False, title="测试标题")
+    # The reference video's own title: long enough to break, so the fixture
+    # exercises the stacked two-line layout rather than the trivial one.
+    path = acd.build_draft(cfg, _scenes(assets), "pytest_draft", replace=False,
+                           title="男人不能为女人做的3件事")
     content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
     return cfg, content, {track["name"]: track for track in content["tracks"]}
 
@@ -220,16 +223,52 @@ def test_bgm_ducks_under_speech_and_lifts_in_the_gaps(draft):
     assert max(levels) == pytest.approx(max(cfg.bgm_volume, cfg.bgm_lift_volume))
 
 
-def test_title_sits_in_the_upper_half(draft):
-    _, _, tracks = draft
-    assert tracks[acd.TITLE_OVERLAY_TRACK]["segments"][0]["clip"]["transform"]["y"] > 0
+def _title_segments(content):
+    """The title lines, top line first, across their one-track-each layout."""
+    tracks = {track["name"]: track for track in content["tracks"]}
+    named = [tracks[name] for name in (acd.title_track_name(i) for i in range(acd.MAX_TITLE_LINES))
+             if name in tracks]
+    segments = [track["segments"][0] for track in named if track["segments"]]
+    return sorted(segments, key=lambda s: -s["clip"]["transform"]["y"])
+
+
+def _fill(text_content):
+    return text_content["styles"][0]["fill"]["content"]["solid"]["color"]
+
+
+def test_the_title_is_one_segment_per_line(draft):
+    """Two lines, because Jianying colours a segment as a whole."""
+    _, content, _ = draft
+    segments = _title_segments(content)
+    assert len(segments) == 2
+    assert all(segment["target_timerange"]["start"] == 0 for segment in segments)
+
+
+def test_the_title_block_is_centred_and_the_lines_do_not_overlap(draft):
+    cfg, content, _ = draft
+    ys = [segment["clip"]["transform"]["y"] for segment in _title_segments(content)]
+    assert sum(ys) == pytest.approx(cfg.title_y, abs=1e-9), "the block is centred on TITLE_Y"
+    pitch = (ys[0] - ys[1]) * acd.CANVAS_HALF_HEIGHT
+    assert pitch == pytest.approx(182, abs=3)
+
+
+def test_the_title_lines_carry_the_two_colours_of_the_style(draft):
+    cfg, content, _ = draft
+    colours = acd.TITLE_PRESETS[cfg.title_style]
+    materials = {item["id"]: item for item in content["materials"]["texts"]}
+    first, second = (json.loads(materials[s["material_id"]]["content"])
+                     for s in _title_segments(content))
+    assert _fill(first) == pytest.approx(list(colours.primary), abs=1e-3)
+    assert _fill(second) == pytest.approx(list(colours.accent), abs=1e-3)
+    assert _fill(first) != _fill(second), "the reference title is not one flat colour"
 
 
 def test_text_layers_are_animated(draft):
     _, content, tracks = draft
     animations = {item["id"] for item in content["materials"].get("material_animations", [])}
-    for name in (acd.NARRATION_SUBTITLE_TRACK, acd.TITLE_OVERLAY_TRACK):
-        for segment in tracks[name]["segments"]:
+    named = [acd.NARRATION_SUBTITLE_TRACK] + [acd.title_track_name(i) for i in range(acd.MAX_TITLE_LINES)]
+    for name in named:
+        for segment in tracks.get(name, {"segments": []})["segments"]:
             assert animations & set(segment["extra_material_refs"]), f"{name} segment has no intro animation"
 
 
@@ -258,7 +297,9 @@ def test_only_the_expected_tracks_exist(draft):
     _, _, tracks = draft
     assert set(tracks) == {
         "visuals", "voiceover", "opening_sfx", "watermark", "BGM",
-        acd.NARRATION_SUBTITLE_TRACK, acd.TITLE_OVERLAY_TRACK, acd.COLOR_GRADE_TRACK,
+        acd.NARRATION_SUBTITLE_TRACK, acd.COLOR_GRADE_TRACK,
+        # One text track per title line, created only for the lines that exist.
+        *(acd.title_track_name(index) for index in range(2)),
     }
 
 
@@ -274,10 +315,26 @@ def test_one_colour_grade_spans_the_whole_video(draft):
 
 
 def test_style_presets_are_selectable(monkeypatch, workspace):
-    monkeypatch.setenv("IMAGE_STYLE_PRESET", "webtoon")
-    assert acd.Config.load().image_style_prompt == acd.STYLE_PRESETS["webtoon"]
+    monkeypatch.setenv("IMAGE_STYLE_PRESET", "manhua")
+    assert acd.Config.load().image_style_prompt == acd.STYLE_PRESETS["manhua"].prompt
     monkeypatch.setenv("IMAGE_STYLE_PROMPT", "my own style")
     assert acd.Config.load().image_style_prompt == "my own style"
+
+
+def test_the_style_supplies_the_grade_and_the_title_colourway(monkeypatch, workspace):
+    """Picking a look has to move the filter and the title with it."""
+    monkeypatch.setenv("IMAGE_STYLE_PRESET", "noir")
+    cfg = acd.Config.load()
+    assert (cfg.color_grade, cfg.title_style) == (acd.STYLE_PRESETS["noir"].grade,
+                                                  acd.STYLE_PRESETS["noir"].title)
+
+
+def test_env_still_wins_over_the_style(monkeypatch, workspace):
+    monkeypatch.setenv("IMAGE_STYLE_PRESET", "noir")
+    monkeypatch.setenv("COLOR_GRADE", "自然")
+    monkeypatch.setenv("TITLE_STYLE", "gold")
+    cfg = acd.Config.load()
+    assert (cfg.color_grade, cfg.title_style) == ("自然", "gold")
 
 
 def test_unknown_style_preset_is_rejected(monkeypatch, workspace):
