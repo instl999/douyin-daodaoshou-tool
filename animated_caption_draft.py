@@ -85,8 +85,47 @@ STYLE_PRESETS = {
         "background with clear spatial depth, polished 2D illustration, not photorealistic, no 3D render, "
         "no watercolor, no soft pastel anime, no chibi, 16:9"
     ),
+    # Hand-painted animation landscape: warm, dreamlike, storybook.
+    "ghibli": (
+        "Studio Ghibli inspired hand-painted anime landscape, nostalgic Japanese animation film look, lush green "
+        "floating islands drifting above a sea of soft white clouds, a small sailboat between them, warm golden "
+        "sunset light with a pastel pink and orange sky, gouache and watercolour textures, gentle painterly "
+        "brushwork, soft diffused light with no harsh shadows, wide peaceful storybook composition, wholesome "
+        "dreamlike atmosphere, not photorealistic, no 3D render, no neon, no chibi, 16:9"
+    ),
+    # Dark cinematic photoreal: neon, smoke, rain, loneliness.
+    "noir": (
+        "Moody cinematic film still, night-time urban China, dramatic red and teal neon light cutting through haze "
+        "and drifting smoke, a lone middle-aged man in a work jacket or long coat beside a window with venetian "
+        "blind shadows or crossing a rainy street with headlight trails, wet asphalt reflections, deep blue shadows "
+        "against warm neon accents, anamorphic lens flare, high-contrast chiaroscuro, desaturated cinematic palette, "
+        "photorealistic, gritty melancholic big-city atmosphere, no cartoon, no illustration, 16:9"
+    ),
+    # Magical-realism folk-tale night: lanterns, fireflies, deep blue.
+    "fantasy": (
+        "Cinematic magical realism night scene, a colossal ancient banyan tree with a small wooden house nested "
+        "among its roots, a lone figure holding a glowing paper lantern walking a stone causeway over still water, "
+        "drifting fireflies and floating light particles, misty deep-blue night against warm lantern glow, soft "
+        "volumetric lighting, Chinese fantasy folk-tale atmosphere, painterly photorealism, highly detailed, "
+        "no cartoon, no text, 16:9"
+    ),
+    # Candid photojournalism: natural light, real places, quiet dignity.
+    "documentary": (
+        "Documentary photograph at a misty Chinese fishing harbour at dawn, a weathered elderly fisherman in work "
+        "clothes mending a green fishing net on the stone dock, an old wooden fishing boat moored beside him, soft "
+        "golden morning light filtering through sea fog, muted natural colours, candid photojournalism style, "
+        "shallow depth of field, subtle 35mm film grain, photorealistic, no cartoon, no illustration, 16:9"
+    ),
 }
 DEFAULT_STYLE_PRESET = "story"
+
+# Art direction can also live in a dedicated JSON file, so presets are
+# editable (and addable) without touching the code. The file is created from
+# the built-ins on first run; presets defined there override built-ins of the
+# same name and may add new ones. Point IMAGE_STYLES_FILE at a different file
+# to keep several palettes around.
+STYLES_FILE_SETTING = "IMAGE_STYLES_FILE"
+DEFAULT_STYLES_FILENAME = "styles.json"
 
 # Framing is per scene, not part of the art direction: thirty medium shots in a
 # row is the fastest way to make a video feel monotonous, however good the
@@ -312,6 +351,59 @@ def resolve_asset_path(value: str) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
+def styles_file_path() -> Path:
+    """Where the style presets live. Relative paths resolve against ROOT."""
+    raw = os.getenv(STYLES_FILE_SETTING, "").strip()
+    return resolve_asset_path(raw) if raw else ROOT / DEFAULT_STYLES_FILENAME
+
+
+def builtin_styles_document() -> dict:
+    return {"default": DEFAULT_STYLE_PRESET, "presets": dict(STYLE_PRESETS)}
+
+
+def load_style_presets() -> tuple[dict[str, str], str, str]:
+    """Return (presets, default_name, source).
+
+    Built-ins are always present; presets from the JSON file override
+    built-ins of the same name and may add new ones. A missing file is
+    created from the built-ins so it can be edited in place; a malformed
+    one is an error rather than a silent fallback.
+    """
+    presets = dict(STYLE_PRESETS)
+    default_name = DEFAULT_STYLE_PRESET
+    path = styles_file_path()
+    if not path.exists():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(builtin_styles_document(), ensure_ascii=False, indent=2)
+            path.write_text(payload + "\n", encoding="utf-8")
+        except OSError:
+            return presets, default_name, "built-in (styles file missing)"
+        return presets, default_name, f"{path} (created from built-ins)"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"{STYLES_FILE_SETTING} is not readable JSON: {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{path} must be a JSON object with a \"presets\" mapping.")
+    raw_presets = data.get("presets", data)
+    if not isinstance(raw_presets, dict) or not raw_presets:
+        raise RuntimeError(f"{path}: \"presets\" must be a non-empty object of name -> prompt.")
+    for name, prompt in raw_presets.items():
+        key = str(name).strip().lower()
+        if not key or not isinstance(prompt, str) or not prompt.strip():
+            raise RuntimeError(f"{path}: style {name!r} must map to a non-empty prompt string.")
+        presets[key] = prompt.strip()
+    file_default = data.get("default")
+    if file_default is not None:
+        default_name = str(file_default).strip().lower()
+        if default_name not in presets:
+            raise RuntimeError(
+                f"{path}: default style {file_default!r} is not one of: {', '.join(sorted(presets))}."
+            )
+    return presets, default_name, str(path)
+
+
 def layout_y(pixels: int) -> float:
     """Convert a reference-frame pixel offset to a clamped transform_y."""
     return clamp_y(pixels / LAYOUT_REFERENCE_HALF_HEIGHT)
@@ -372,6 +464,8 @@ class Config:
     ark_image_cny_per_image: float | None
     image_concurrency: int
     image_style_prompt: str
+    style_preset: str
+    styles_source: str
 
     # Ark TTS
     ark_tts_url: str
@@ -429,10 +523,16 @@ class Config:
             options = ", ".join(sorted(TITLE_PRESETS))
             raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
 
-        style_preset = env_value("IMAGE_STYLE_PRESET", DEFAULT_STYLE_PRESET).lower()
-        if style_preset not in STYLE_PRESETS:
-            options = ", ".join(sorted(STYLE_PRESETS))
-            raise RuntimeError(f"IMAGE_STYLE_PRESET must be one of: {options}.")
+        style_presets, style_default, styles_source = load_style_presets()
+
+        style_preset = env_value("IMAGE_STYLE_PRESET", style_default).lower()
+        if style_preset not in style_presets:
+            options = ", ".join(sorted(style_presets))
+            raise RuntimeError(
+                f"IMAGE_STYLE_PRESET must be one of: {options}. "
+                f"(Presets come from {styles_file_path()}; edit it or point "
+                f"{STYLES_FILE_SETTING} at another file to add your own.)"
+            )
 
         draft_dir = Path(required("JIAN_YING_DRAFT_DIR")).expanduser()
         if not draft_dir.is_dir():
@@ -462,7 +562,9 @@ class Config:
             image_concurrency=bounded_env_int(
                 "IMAGE_CONCURRENCY", DEFAULT_IMAGE_CONCURRENCY, 1, MAX_IMAGE_CONCURRENCY
             ),
-            image_style_prompt=env_value("IMAGE_STYLE_PROMPT", STYLE_PRESETS[style_preset]),
+            image_style_prompt=env_value("IMAGE_STYLE_PROMPT", style_presets[style_preset]),
+            style_preset=style_preset,
+            styles_source=styles_source,
 
             ark_tts_url=env_value("ARK_TTS_URL", DEFAULT_ARK_TTS_URL),
             ark_tts_model=env_value("ARK_TTS_MODEL", DEFAULT_ARK_TTS_MODEL),
@@ -541,8 +643,9 @@ def describe_configuration(cfg: Config) -> None:
     subtitle_px = round(cfg.subtitle_y * CANVAS_HALF_HEIGHT)
     title_px = round(cfg.title_y * CANVAS_HALF_HEIGHT)
     print(f"Canvas: {CANVAS_WIDTH}x{CANVAS_HEIGHT} @30fps (landscape)")
-    print(f"Art style: {env_value('IMAGE_STYLE_PRESET', DEFAULT_STYLE_PRESET)}"
-          f"{' (overridden by IMAGE_STYLE_PROMPT)' if os.getenv('IMAGE_STYLE_PROMPT', '').strip() else ''}")
+    print(f"Art style: {cfg.style_preset}"
+          f"{' (overridden by IMAGE_STYLE_PROMPT)' if os.getenv('IMAGE_STYLE_PROMPT', '').strip() else ''}"
+          f"  [{cfg.styles_source}]")
     print(
         f"Subtitle Y: {os.getenv('NARRATION_SUBTITLE_Y', DEFAULT_NARRATION_SUBTITLE_Y)} "
         f"-> transform_y {cfg.subtitle_y:.3f} -> {abs(subtitle_px)} px "
@@ -560,7 +663,8 @@ def describe_configuration(cfg: Config) -> None:
           f"{cfg.ending_hold_us / 1e6:.2f}s held at the end")
     print(f"Colour grade: {cfg.color_grade or 'none'} at {cfg.color_grade_intensity:.0f}%")
     for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR",
-                 "NARRATION_SUBTITLE_Y", "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT"):
+                 "NARRATION_SUBTITLE_Y", "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT",
+                 STYLES_FILE_SETTING):
         print(f"  {name}: {env_source(name)}")
 
 

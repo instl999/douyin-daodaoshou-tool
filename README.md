@@ -56,7 +56,7 @@ python animated_caption_draft.py --draft-name my_story --title "示例标题" --
 
 | | 做法 |
 | --- | --- |
-| **画风统一** | 全片共用一段画风提示词，三个预设可选，也可整段自定义 |
+| **画风统一** | 全片共用一段画风提示词，七个预设可选（见 `styles.json`，可改可加），也可整段自定义 |
 | **角色一致** | 分镜阶段抽出全片共用的角色设定，逐字注入每一张图的提示词，主角不会每隔几秒换一张脸 |
 | **景别有变化** | 逐句决定全景 / 中景 / 特写：全景开段落和交代环境，特写落在情绪、转折和结论上 |
 | **一图一镜到底** | `01.png` 播完直接接 `02.png`，同一张图不会在中途被切开 |
@@ -93,21 +93,35 @@ assets/
 
 ## 画风在哪里改
 
-按改动幅度从小到大，一共四个入口：
+共 **7 个内置预设**，全部集中在 **`styles.json`**（仓库根目录）里，改画风不用动代码：
 
-| 想怎么改 | 改哪里 | 具体位置 |
-| --- | --- | --- |
-| 三套现成画风换一套 | `.env` 的 `IMAGE_STYLE_PRESET` | [`.env.example`](.env.example) 第 142 行，`story` / `webtoon` / `cinematic` 三选一 |
-| 换成自己写的完整画风描述 | `.env` 的 `IMAGE_STYLE_PROMPT` | [`.env.example`](.env.example) 第 144 行，填了就覆盖上面的预设（英文描述效果最稳） |
-| 微调某一套预设的措辞 | 代码里的 `STYLE_PRESETS` 字典 | [`animated_caption_draft.py`](animated_caption_draft.py) 第 55–88 行，其中默认的 `story` 从第 58 行开始 |
-| 换掉默认预设 | 代码里的 `DEFAULT_STYLE_PRESET` | [`animated_caption_draft.py`](animated_caption_draft.py) 第 89 行 |
+| 预设 | 观感 |
+| --- | --- |
+| `story`（默认） | 情感故事条漫：粗均匀墨线、平涂低饱和、柔和平光、腮红、背景简洁，辨识度高，也最容易保持稳定 |
+| `webtoon` | 韩式写实条漫：线更细、渲染更柔、色彩更克制，观感更"高级" |
+| `cinematic` | 高饱和深蓝 + 强对比电影光的国漫风（旧默认值） |
+| `ghibli` | 吉卜力手绘动画：云海浮岛、水彩质感、暖金落光，梦幻绘本感 |
+| `noir` | 暗调电影实拍感：霓虹红蓝、烟雾雨夜、高对比明暗，孤独都市氛围 |
+| `fantasy` | 魔幻现实夜景：巨榕灯影、萤火浮光、深蓝夜色，民间志怪气质 |
+| `documentary` | 纪实摄影：晨雾渔港、自然光、35mm 胶片颗粒，人文纪实感 |
 
-配套设置：
+按改动幅度从小到大：
 
+| 想怎么改 | 改哪里 |
+| --- | --- |
+| 换一套现成画风 | `.env` 的 `IMAGE_STYLE_PRESET`，取值就是 `styles.json` 里的键名 |
+| 微调某套预设 / 加一套自己的画风 | 直接编辑 [styles.json](styles.json)：改 `presets` 里现有键的值，或加一个新键（`IMAGE_STYLE_PRESET` 填新键名即可用）；把 `"default"` 换成你的键，连 `.env` 都不用动 |
+| 画风文件放别处 / 多套画风轮换 | `.env` 的 `IMAGE_STYLES_FILE` 指向任意 JSON（相对路径基于仓库根目录） |
+| 只这一次想换个完整描述，不改文件 | `.env` 的 `IMAGE_STYLE_PROMPT`，会覆盖预设（英文描述效果最稳） |
+
+说明：
+
+- `styles.json` 缺失时会在首次运行按内置默认自动生成；文件坏了（非法 JSON、`"default"` 指向不存在的键）会**直接报错并指出位置**，不会悄悄退回默认
+- 代码里保留了一份内置默认（[`animated_caption_draft.py`](animated_caption_draft.py) 第 55 行起的 `STYLE_PRESETS` 字典），`styles.json` 里的同名预设会覆盖它 —— **升级代码不会冲掉你改过的画风**
 - `ARK_IMAGE_SEED`（[`.env.example`](.env.example) 第 22 行）：固定随机种子，画风更稳、重跑可复现
 - `COLOR_GRADE`：全片统一滤镜。最终观感由**画风提示词 + 滤镜**共同决定，`none` 关闭
-- 画风提示词由 `compose_image_prompt()`（[`animated_caption_draft.py`](animated_caption_draft.py) 第 622 行）拼在每句分镜描述之后 —— 画面跑偏时先 `--plan-only` 看分镜描述本身对不对，分镜偏了改画风没用
-- `--check-config` 会打印当前生效的画风，以及它的来源（`.env` / 系统环境变量 / 默认值）
+- 画风提示词由 `compose_image_prompt()`（[`animated_caption_draft.py`](animated_caption_draft.py) 第 726 行）拼在每句分镜描述之后 —— 画面跑偏时先 `--plan-only` 看分镜描述本身对不对，分镜偏了改画风没用
+- `--check-config` 会打印当前生效的画风及其来源（哪个文件 / `.env` / 默认值）
 
 ---
 
@@ -174,7 +188,8 @@ python animated_caption_draft.py --draft-name preview --input copy.txt --plan-on
 | `ARK_API_KEY` | 空 | 方舟 Agent Plan 密钥，三个模型共用 |
 | `ARK_TTS_VOICE_TYPE` | 示例音色 | 音色 ID |
 | `JIAN_YING_DRAFT_DIR` | 空 | 本机剪映草稿根目录 |
-| `IMAGE_STYLE_PRESET` | `story` | 全片画风 |
+| `IMAGE_STYLE_PRESET` | `story` | 全片画风，取值见 [styles.json](styles.json) |
+| `IMAGE_STYLES_FILE` | 空 | 画风 JSON 路径，留空用仓库根目录的 `styles.json` |
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | 每镜头承载的中文字数，下限 8。**控制画面节奏的唯一参数**：调小 = 切得更快、图更多、成本更高 |
 | `KEN_BURNS_RATE` | `0.035` | 运镜速度，每秒走过画面的比例 |
 | `PARAGRAPH_PAUSE_SECONDS` | `0.5` | 段落结尾的气口长度 |
