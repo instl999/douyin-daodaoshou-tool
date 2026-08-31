@@ -1,6 +1,6 @@
-# Copy → Manhua Video · Jianying Draft Generator
+# Douyin "Xinli Daodaoshou" Same-Style Video Maker · Jianying Draft Generator
 
-Turns a piece of Chinese copy into an editable Jianying (CapCut China) draft: an AI storyboard, per-line voice-over, one manhua panel per line, then a timeline with visuals, narration, captions, a title, sound effects, BGM and a colour grade already laid out.
+Recreates the video format of the Douyin blogger "Xinli Daodaoshou" ([creator page](https://v.douyin.com/AYhnYiaH0uo/)): it turns a piece of Chinese copy into an editable Jianying (CapCut China) draft — an AI storyboard, per-line voice-over, one panel per line, then a timeline with visuals, narration, captions, a title, sound effects, BGM and a colour grade already laid out.
 
 It produces a **draft, not a finished video** — every asset and keyframe sits on the timeline, so you can adjust anything by hand and export it yourself.
 
@@ -11,8 +11,8 @@ It produces a **draft, not a finished video** — every asset and keyframe sits 
 ## Sixty-second start
 
 ```powershell
-git clone https://github.com/instl999/copy-to-manhua-jianying-draft.git
-Set-Location .\copy-to-manhua-jianying-draft
+git clone https://github.com/instl999/douyin-daodaoshou-tool.git
+Set-Location .\douyin-daodaoshou-tool
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
@@ -90,19 +90,23 @@ Point `.env` at relative or absolute paths. Leave BGM and watermark empty to ski
 
 ---
 
-## Art direction
+## Where the art direction lives
 
-Pick one of three with `IMAGE_STYLE_PRESET`:
+Four entry points, ordered from the smallest change to the largest:
 
-| Preset | Look | Suits |
+| What you want | Where | Exact location |
 | --- | --- | --- |
-| `story` (default) | Thick even ink lines, flat low-saturation colour, soft even light, rosy cheeks, sparse backgrounds | The dominant look in Chinese emotional-story short video; high recognition and the easiest to keep consistent |
-| `webtoon` | Thinner lines, softer rendering, restrained colour | Reads as higher production value; suits career, finance and self-improvement topics |
-| `cinematic` | Saturated deep navy with high-contrast cinematic lighting | More dramatic, harder to keep consistent |
+| Switch to one of the three presets | `IMAGE_STYLE_PRESET` in `.env` | [`.env.example`](.env.example) line 142 — `story` / `webtoon` / `cinematic` |
+| Write your own complete style description | `IMAGE_STYLE_PROMPT` in `.env` | [`.env.example`](.env.example) line 144 — overrides the preset entirely (English descriptions work best) |
+| Tweak the wording of one preset | The `STYLE_PRESETS` dict in the code | [`animated_caption_draft.py`](animated_caption_draft.py) lines 55–88; the default `story` preset starts at line 58 |
+| Change the default preset | `DEFAULT_STYLE_PRESET` in the code | [`animated_caption_draft.py`](animated_caption_draft.py) line 89 |
 
-Set `IMAGE_STYLE_PROMPT` to override the preset entirely. `--check-config` reports which one is in effect.
+Related settings:
 
-When changing style, also set a fixed `ARK_IMAGE_SEED`: the look holds together better and reruns become reproducible.
+- `ARK_IMAGE_SEED` ([`.env.example`](.env.example) line 22): a fixed seed keeps the look stable and reruns reproducible
+- `COLOR_GRADE`: one filter across the whole video. The final look comes from the **style prompt plus the filter**; set to `none` to disable
+- The style prompt is appended after each scene description by `compose_image_prompt()` ([`animated_caption_draft.py`](animated_caption_draft.py) line 622) — when the pictures go wrong, run `--plan-only` first: if the scene description itself went astray, changing the style will not help
+- `--check-config` prints which style is in effect and where it came from (`.env` / process environment / default)
 
 ---
 

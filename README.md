@@ -1,6 +1,6 @@
-# 文案转国漫视频 · 剪映草稿生成器
+# 抖音「心理叨叨兽」同款商品制作工具 · 剪映草稿生成器
 
-把一段中文文案，变成一份可以在剪映专业版里继续编辑的草稿：AI 拆分镜、逐句配音、逐句生成漫画画面，然后自动铺好视觉、旁白、字幕、标题、音效、BGM 和调色轨道。
+复刻抖音博主「心理叨叨兽」（[博主主页](https://v.douyin.com/AYhnYiaH0uo/)）的同款视频：把一段中文文案，变成一份可以在剪映专业版里继续编辑的草稿 —— AI 拆分镜、逐句配音、逐句生成画面，然后自动铺好视觉、旁白、字幕、标题、音效、BGM 和调色轨道。
 
 生成的是**草稿**而不是成片 —— 所有素材和关键帧都在时间轴上，你可以随时手动改，再自己导出。
 
@@ -11,8 +11,8 @@ English documentation: [README.en.md](README.en.md)
 ## 60 秒上手
 
 ```powershell
-git clone https://github.com/instl999/copy-to-manhua-jianying-draft.git
-Set-Location .\copy-to-manhua-jianying-draft
+git clone https://github.com/instl999/douyin-daodaoshou-tool.git
+Set-Location .\douyin-daodaoshou-tool
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
@@ -89,19 +89,23 @@ assets/
 
 ---
 
-## 画风
+## 画风在哪里改
 
-`IMAGE_STYLE_PRESET` 三选一：
+按改动幅度从小到大，一共四个入口：
 
-| 预设 | 观感 | 适合 |
+| 想怎么改 | 改哪里 | 具体位置 |
 | --- | --- | --- |
-| `story`（默认） | 粗均匀墨线、平涂低饱和、柔和平光、腮红、背景简洁 | 情感 / 民间故事类短视频最常见的画风，辨识度高，也最容易保持稳定 |
-| `webtoon` | 线更细、渲染更柔、色彩更克制 | 观感更"高级"，适合职场、财经、成长类内容 |
-| `cinematic` | 高饱和深蓝 + 强对比电影光 | 戏剧性强，但一致性更难控 |
+| 三套现成画风换一套 | `.env` 的 `IMAGE_STYLE_PRESET` | [`.env.example`](.env.example) 第 142 行，`story` / `webtoon` / `cinematic` 三选一 |
+| 换成自己写的完整画风描述 | `.env` 的 `IMAGE_STYLE_PROMPT` | [`.env.example`](.env.example) 第 144 行，填了就覆盖上面的预设（英文描述效果最稳） |
+| 微调某一套预设的措辞 | 代码里的 `STYLE_PRESETS` 字典 | [`animated_caption_draft.py`](animated_caption_draft.py) 第 55–88 行，其中默认的 `story` 从第 58 行开始 |
+| 换掉默认预设 | 代码里的 `DEFAULT_STYLE_PRESET` | [`animated_caption_draft.py`](animated_caption_draft.py) 第 89 行 |
 
-需要完全自定义就把整段提示词写进 `IMAGE_STYLE_PROMPT`，它会覆盖预设。`--check-config` 会显示当前生效的是哪一个。
+配套设置：
 
-换画风时建议同时设一个固定的 `ARK_IMAGE_SEED`：画风更稳，重跑结果也可复现。
+- `ARK_IMAGE_SEED`（[`.env.example`](.env.example) 第 22 行）：固定随机种子，画风更稳、重跑可复现
+- `COLOR_GRADE`：全片统一滤镜。最终观感由**画风提示词 + 滤镜**共同决定，`none` 关闭
+- 画风提示词由 `compose_image_prompt()`（[`animated_caption_draft.py`](animated_caption_draft.py) 第 622 行）拼在每句分镜描述之后 —— 画面跑偏时先 `--plan-only` 看分镜描述本身对不对，分镜偏了改画风没用
+- `--check-config` 会打印当前生效的画风，以及它的来源（`.env` / 系统环境变量 / 默认值）
 
 ---
 
