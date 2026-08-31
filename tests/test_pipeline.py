@@ -34,8 +34,108 @@ def test_layout_y_clamps_to_the_safe_area():
     assert acd.layout_y(100_000) == acd.SAFE_NORMALIZED_Y
 
 
-def test_title_sits_in_the_upper_half():
-    assert acd.layout_y(acd.DEFAULT_TITLE_Y) > 0
+def test_title_block_is_centred_like_the_reference():
+    """The reference centres its title on the frame; it is the frame, briefly."""
+    assert acd.layout_y(acd.DEFAULT_TITLE_Y) == 0.0
+
+
+def test_default_title_and_caption_sizes_match_the_measured_reference():
+    """Both are derived from pixel measurements, so guard the arithmetic.
+
+    Reference frame: caption em ~66 px, title em ~191 px on a 1080-tall frame.
+    """
+    assert round(acd.DEFAULT_SUBTITLE_SIZE * acd.DEFAULT_SUBTITLE_EM_PX) == 67
+    assert round(acd.DEFAULT_TITLE_SIZE * acd.DEFAULT_SUBTITLE_EM_PX) == 191
+
+
+# ----------------------------------------------------------- title breaking --
+
+def _title_limit(size=None):
+    return acd.characters_per_line(
+        size or acd.DEFAULT_TITLE_SIZE, acd.DEFAULT_TITLE_MAX_LINE_WIDTH, acd.DEFAULT_SUBTITLE_EM_PX
+    )
+
+
+def test_the_reference_title_breaks_where_a_person_broke_it():
+    """The actual title from the reference video, and its actual break."""
+    assert acd.split_title_lines("男人不能为女人做的3件事", _title_limit()) == ["男人不能为女人", "做的3件事"]
+
+
+def test_short_titles_stay_on_one_line():
+    assert acd.split_title_lines("认知觉醒", _title_limit()) == ["认知觉醒"]
+
+
+def test_a_line_never_ends_on_a_particle_that_binds_forward():
+    """A width-only break lands on 绝 / 对 here; both leave a word hanging."""
+    lines = acd.split_title_lines("男人这一生绝对不能为女人做这三件事", _title_limit())
+    assert lines == ["男人这一生", "绝对不能为女人", "做这三件事"]
+    for line in lines[:-1]:
+        assert line[-1] not in acd.TITLE_NEVER_ENDS_A_LINE
+    for line in lines[1:]:
+        assert line[0] not in acd.TITLE_NEVER_STARTS_A_LINE
+
+
+def test_punctuation_is_a_break_point_and_is_dropped():
+    lines = acd.split_title_lines("情绪稳定，是一个成年人最大的底气", _title_limit())
+    assert lines[0] == "情绪稳定"
+    assert not any("，" in line for line in lines)
+
+
+def test_a_run_of_digits_is_never_split():
+    assert acd.split_title_lines("30岁之后别再做这三件蠢事", _title_limit())[0].startswith("30")
+
+
+def test_an_explicit_newline_is_obeyed_verbatim():
+    assert acd.split_title_lines("第一行\n第二行", _title_limit()) == ["第一行", "第二行"]
+
+
+def test_a_title_never_exceeds_the_line_limit():
+    limit = _title_limit()
+    for length in range(1, 60):
+        for line in acd.split_title_lines("字" * length, limit)[:-1]:
+            assert len(line) <= limit
+
+
+def test_a_title_too_long_for_three_lines_shrinks_instead_of_wrapping():
+    """Auto-wrap is off, so an overlong line has to be handled by the size."""
+    lines = acd.split_title_lines("字" * 40, _title_limit())
+    assert len(lines) == acd.MAX_TITLE_LINES
+    fitted = acd.fit_title_size(
+        lines, acd.DEFAULT_TITLE_SIZE, acd.DEFAULT_TITLE_MAX_LINE_WIDTH, acd.DEFAULT_SUBTITLE_EM_PX
+    )
+    assert fitted < acd.DEFAULT_TITLE_SIZE
+    widest = max(len(line) for line in lines)
+    assert widest * fitted * acd.DEFAULT_SUBTITLE_EM_PX <= acd.DEFAULT_TITLE_MAX_LINE_WIDTH * acd.CANVAS_WIDTH + 1e-6
+
+
+def test_a_title_that_already_fits_is_never_enlarged():
+    size = acd.fit_title_size(
+        ["四个字"], acd.DEFAULT_TITLE_SIZE, acd.DEFAULT_TITLE_MAX_LINE_WIDTH, acd.DEFAULT_SUBTITLE_EM_PX
+    )
+    assert size == acd.DEFAULT_TITLE_SIZE
+
+
+def test_title_lines_are_centred_on_the_block_at_the_reference_pitch():
+    offsets = acd.title_line_offsets(2, 0.0, acd.DEFAULT_TITLE_SIZE, acd.DEFAULT_SUBTITLE_EM_PX)
+    assert offsets[0] > 0 > offsets[1]
+    assert offsets[0] == pytest.approx(-offsets[1])
+    pitch_px = (offsets[0] - offsets[1]) * acd.CANVAS_HALF_HEIGHT
+    assert pitch_px == pytest.approx(182, abs=2), "reference line pitch is 182 px"
+
+
+def test_a_single_title_line_sits_exactly_on_the_block_centre():
+    assert acd.title_line_offsets(1, 0.25, acd.DEFAULT_TITLE_SIZE, acd.DEFAULT_SUBTITLE_EM_PX) == [0.25]
+
+
+@pytest.mark.parametrize("base", [0.9, -0.9, 0.0])
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_a_title_block_pushed_off_frame_moves_whole_and_keeps_its_pitch(count, base):
+    """Clamping line by line used to pile the outer lines against the edge."""
+    offsets = acd.title_line_offsets(count, base, acd.DEFAULT_TITLE_SIZE, acd.DEFAULT_SUBTITLE_EM_PX)
+    assert all(abs(y) <= acd.SAFE_NORMALIZED_Y for y in offsets)
+    assert len(set(offsets)) == count, "two title lines landed on the same height"
+    gaps = {round(a - b, 9) for a, b in zip(offsets, offsets[1:], strict=False)}
+    assert len(gaps) <= 1, "the line pitch changed inside one title"
 
 
 # --------------------------------------------------------- caption wrapping --
@@ -266,8 +366,8 @@ def test_unknown_shot_size_falls_back_to_medium():
 
 def test_framing_is_not_baked_into_the_art_direction():
     """Thirty identical medium shots was the bug; framing belongs per scene."""
-    for prompt in acd.STYLE_PRESETS.values():
-        assert "two-shot framing" not in prompt
+    for preset in acd.STYLE_PRESETS.values():
+        assert "two-shot framing" not in preset.prompt
 
 
 def test_shot_size_and_pause_are_read_from_the_storyboard():
@@ -400,12 +500,70 @@ def test_env_values_parse_as_expected(raw, expected):
 @pytest.mark.parametrize("name", sorted(acd.STYLE_PRESETS))
 def test_style_prompts_survive_parsing(name):
     """Style prompts are long and comma-heavy; they must come back whole."""
-    prompt = acd.STYLE_PRESETS[name]
+    prompt = acd.STYLE_PRESETS[name].prompt
     assert acd._parse_env_value(prompt) == prompt
 
 
 def test_default_style_preset_exists():
     assert acd.DEFAULT_STYLE_PRESET in acd.STYLE_PRESETS
+
+
+# ------------------------------------------------------------------ styles --
+
+def test_there_are_nine_styles_and_they_are_distinct():
+    assert len(acd.STYLE_PRESETS) == 9
+    assert len({preset.prompt for preset in acd.STYLE_PRESETS.values()}) == 9
+    assert len({preset.medium for preset in acd.STYLE_PRESETS.values()}) == 9
+
+
+@pytest.mark.parametrize("name", sorted(acd.STYLE_PRESETS))
+def test_every_style_carries_the_things_that_must_match_it(name):
+    """A style is not just a prompt: the director, grade and title move with it."""
+    preset = acd.STYLE_PRESETS[name]
+    assert preset.prompt.endswith("16:9")
+    assert preset.medium and preset.avoid and preset.label
+    assert preset.title in acd.TITLE_PRESETS
+    assert preset.grade and preset.grade.lower() not in {"none", "off"}
+
+
+def test_the_default_style_is_the_reference_look():
+    preset = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
+    assert acd.DEFAULT_STYLE_PRESET == "midnight"
+    assert "midnight-blue" in preset.medium
+    assert preset.title == acd.DEFAULT_TITLE_STYLE
+
+
+def test_a_bare_prompt_string_keeps_the_rest_of_the_built_in():
+    """Old styles.json files hold plain strings; they must not lose the grade."""
+    parsed = acd.StylePreset.parse("midnight", "my own words", "test")
+    built_in = acd.STYLE_PRESETS["midnight"]
+    assert parsed.prompt == "my own words"
+    assert (parsed.medium, parsed.grade, parsed.title) == (built_in.medium, built_in.grade, built_in.title)
+
+
+def test_an_unknown_style_from_a_string_still_gets_usable_defaults():
+    parsed = acd.StylePreset.parse("brand_new", "some prompt", "test")
+    assert parsed.prompt == "some prompt"
+    assert parsed.medium == acd.DEFAULT_STYLE_MEDIUM
+    assert parsed.title in acd.TITLE_PRESETS
+
+
+def test_an_object_style_overrides_only_what_it_names():
+    parsed = acd.StylePreset.parse("noir", {"prompt": "p", "grade": "自然"}, "test")
+    assert (parsed.grade, parsed.medium) == ("自然", acd.STYLE_PRESETS["noir"].medium)
+
+
+@pytest.mark.parametrize("value", ["", "   ", 42, None, {"medium": "x"}])
+def test_a_style_without_a_prompt_is_an_error(value):
+    with pytest.raises(RuntimeError):
+        acd.StylePreset.parse("x", value, "test")
+
+
+def test_the_generated_styles_file_round_trips():
+    document = acd.builtin_styles_document()
+    assert document["default"] == acd.DEFAULT_STYLE_PRESET
+    for name, payload in document["presets"].items():
+        assert acd.StylePreset.parse(name, payload, "test") == acd.STYLE_PRESETS[name]
 
 
 # ------------------------------------------------------------------ prompt --
@@ -418,6 +576,7 @@ def _scene(**overrides):
 
 class _StubConfig:
     image_style_prompt = "test style"
+    style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
 
 
 def test_cast_description_is_injected_verbatim():
@@ -436,3 +595,25 @@ def test_prompt_without_cast_has_no_cast_block():
 def test_unknown_cast_ids_are_ignored():
     prompt = acd.compose_image_prompt(_StubConfig(), _scene(cast=["Z"]), [acd.Character("A", "x")])
     assert "Recurring cast" not in prompt
+
+
+def test_the_image_prompt_names_the_selected_medium():
+    prompt = acd.compose_image_prompt(_StubConfig(), _scene(), [])
+    assert acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET].medium in prompt
+    assert "manhua panel" not in prompt
+
+
+@pytest.mark.parametrize("name", sorted(acd.STYLE_PRESETS))
+def test_the_storyboard_director_is_told_the_selected_medium(name):
+    """A photographic style used to be handed a brief for flat manhua panels."""
+    preset = acd.STYLE_PRESETS[name]
+
+    class _Cfg(_StubConfig):
+        style = preset
+        scene_length_mode = "density"
+        scene_characters = 22
+
+    prompt = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    assert preset.medium in prompt
+    assert preset.avoid in prompt
+    assert "social-realism manhua" not in prompt

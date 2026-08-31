@@ -50,74 +50,257 @@ DEFAULT_ARK_IMAGE_MODEL = "doubao-seedream-5.0-lite"
 DEFAULT_ARK_TTS_MODEL = "seed-tts-2.0"
 DEFAULT_OPENING_SOUND_PATH = "assets/opening_dong.mp3"
 
-# Whole-video art direction. Pick one with IMAGE_STYLE_PRESET, or override the
-# text entirely with IMAGE_STYLE_PROMPT.
-STYLE_PRESETS = {
-    # The short-video emotional-story look: thick even ink lines, flat muted
-    # colour, soft even light, rosy cheeks, sparse domestic backgrounds.
-    "story": (
-        "Chinese webtoon manhua panel in the style of popular emotional-story short videos, contemporary Chinese "
-        "everyday setting, semi-realistic adult characters with slightly caricatured and very readable facial "
-        "expressions, believable adult proportions, thick even-weight black ink outlines on every figure and prop, "
-        "flat colour fills with soft airbrushed shading and almost no gradients, muted low-saturation palette of "
-        "dusty blue-grey, warm beige, soft olive and pale peach skin, gentle rosy blush on cheeks and nose, even "
-        "soft ambient lighting with low contrast and no dramatic shadows or rim light, simple uncluttered domestic "
-        "or street interior with only a few clearly drawn props and a plain wall, clean 2D digital illustration "
-        "with a subtle warm printed-paper cast, "
-        "not photorealistic, no 3D render, no watercolour, no glossy anime highlights, no neon, no chibi, 16:9"
+# Whole-video art direction. Nine presets; pick one with IMAGE_STYLE_PRESET.
+#
+# A preset is more than a prompt. Three other things have to move with it, or
+# the video ends up fighting itself:
+#
+#   medium  the phrase that names the drawing itself. It goes to the storyboard
+#           director *and* into every image prompt, so the director stops
+#           describing manhua panels when the chosen style is a photograph.
+#   avoid   what that medium must never collapse into, in the same voice.
+#   grade   the Jianying filter that suits it. A neutral grey pass flattens the
+#           navy out of "midnight" and does nothing at all for "noir".
+#   title   the opening-title colourway that belongs to the palette.
+#
+# grade and title are defaults only -- COLOR_GRADE / TITLE_STYLE in .env win.
+
+DEFAULT_STYLE_MEDIUM = "illustrated panel"
+DEFAULT_STYLE_AVOID = "photography or 3D rendering"
+DEFAULT_COLOR_GRADE = "灰调中性"
+
+
+@dataclass(frozen=True)
+class StylePreset:
+    """One complete look: art direction plus everything that must match it."""
+
+    prompt: str
+    medium: str = DEFAULT_STYLE_MEDIUM
+    avoid: str = DEFAULT_STYLE_AVOID
+    grade: str = DEFAULT_COLOR_GRADE
+    title: str = "crimson"
+    label: str = ""
+
+    @classmethod
+    def parse(cls, name: str, value: Any, source: str) -> StylePreset:
+        """Accept either a bare prompt string or the full object form.
+
+        A string keeps the pre-9-style files working: only the prompt is
+        replaced, and everything else falls back to the built-in of the same
+        name, so overriding one preset's wording does not silently drop its
+        colour grade and title colourway.
+        """
+        base = STYLE_PRESETS.get(name)
+        if isinstance(value, str):
+            prompt, extra = value.strip(), {}
+        elif isinstance(value, dict):
+            prompt, extra = str(value.get("prompt", "")).strip(), value
+        else:
+            raise RuntimeError(
+                f"{source}: style {name!r} must be a prompt string, or an object with a \"prompt\" key."
+            )
+        if not prompt:
+            raise RuntimeError(f"{source}: style {name!r} needs a non-empty \"prompt\".")
+
+        def pick(field_name: str, default: str) -> str:
+            chosen = str(extra.get(field_name) or "").strip()
+            if chosen:
+                return chosen
+            return getattr(base, field_name) if base else default
+
+        return cls(
+            prompt=prompt,
+            medium=pick("medium", DEFAULT_STYLE_MEDIUM),
+            avoid=pick("avoid", DEFAULT_STYLE_AVOID),
+            grade=pick("grade", DEFAULT_COLOR_GRADE),
+            title=pick("title", "crimson").lower(),
+            label=pick("label", ""),
+        )
+
+    def export_json(self) -> dict[str, str]:
+        return {"label": self.label, "prompt": self.prompt, "medium": self.medium,
+                "avoid": self.avoid, "grade": self.grade, "title": self.title}
+
+
+STYLE_PRESETS: dict[str, StylePreset] = {
+    # The reference look: white pen on midnight blue, spot colour on one thing.
+    # Every panel is drawn with the same single line, so images generated hours
+    # apart still cut together -- which is the reason it is the default.
+    "midnight": StylePreset(
+        label="深蓝白描",
+        prompt=(
+            "Single-colour white line illustration on a flat deep midnight-blue ground, the whole panel one "
+            "continuous pen drawing: every figure, building and object rendered only as clean white contour "
+            "lines of even weight, volume and shadow built from fine parallel hatching and cross-hatching like "
+            "a steel engraving, no filled colour areas and no grey wash, the navy itself reading as shadow. "
+            "Semi-realistic adults with confident anatomy, simple strongly readable silhouettes and clear body "
+            "language, faces drawn in few lines and barely shaded. One subject, held large and central, with "
+            "wide empty navy around it and only a horizon or two suggested walls for depth. Exactly one or two "
+            "elements carry a flat saturated spot colour -- gold, crimson, amber or magenta -- and everything "
+            "else stays white on navy; a soft glow only where there is a light source. Even fine grain across "
+            "the whole panel. Editorial, symbolic, calm. "
+            "Not photorealistic, no 3D render, no full-colour painting, no watercolour, no black outlines, "
+            "no pale or white background, 16:9"
+        ),
+        medium="a white line drawing on a deep midnight-blue ground",
+        avoid="photography, 3D rendering, full-colour painting, or a pale background",
+        grade="深蓝电影感",
+        title="crimson",
     ),
-    # Cleaner and more premium: thinner lines, softer rendering, closer to a
-    # Korean webtoon. Reads as higher production value, slightly less warm.
-    "webtoon": (
-        "Korean-style realistic webtoon panel, contemporary Chinese everyday setting, semi-realistic adult faces "
-        "with natural proportions and subtle expressive acting, thin clean tapered ink linework, smooth soft "
-        "cel shading with gentle gradients, restrained natural palette of warm neutrals and desaturated blues, "
-        "soft diffused daylight, shallow depth with a simply rendered background, polished digital illustration, "
-        "not photorealistic, no 3D render, no watercolour, no heavy outlines, no chibi, 16:9"
+    # The warm, literal one. Faces act here, so it carries dialogue and feeling
+    # better than anything else in the set.
+    "manhua": StylePreset(
+        label="国漫条漫",
+        prompt=(
+            "Contemporary Chinese webtoon panel, mature emotional-story comic aesthetic, present-day mainland "
+            "setting. Semi-realistic adults with believable proportions and faces that genuinely act, the "
+            "expression carrying the sentence. Clean tapered black ink linework, heavier on the outer contour "
+            "and light inside, flat colour fills with one soft cel shadow and one warm rim light, almost no "
+            "gradients. Restrained palette of dusty blue-grey, warm beige, soft olive and pale peach skin, a "
+            "gentle rosy blush on the cheeks. Even soft daylight, low contrast, no theatrical shadows. An "
+            "ordinary interior or street holding only the few props the moment needs, plain wall behind. "
+            "Subtle printed-paper grain. "
+            "Not photorealistic, no 3D render, no watercolour, no glossy anime highlights, no neon, no chibi, 16:9"
+        ),
+        medium="a contemporary Chinese webtoon panel",
+        avoid="photography or 3D rendering",
+        grade="灰调中性",
+        title="paper",
     ),
-    # The previous default: saturated, high-contrast, cinematic.
-    "cinematic": (
-        "Chinese social-realism manhua panel, mature narrative webcomic aesthetic, contemporary Chinese everyday "
-        "setting, semi-realistic adult faces and believable human anatomy, strongly expressive facial emotions and "
-        "dramatic but natural body language, bold crisp black ink outlines with varied line weight, flat color fills "
-        "with hard-edged cel shading, subtle printed-comic texture on skin and clothing, saturated deep navy blue "
-        "contrasted with muted warm earth tones, high-contrast cinematic lighting, simple clean interior or urban "
-        "background with clear spatial depth, polished 2D illustration, not photorealistic, no 3D render, "
-        "no watercolor, no soft pastel anime, no chibi, 16:9"
+    # Almost nothing on the page. Best on writing that is already slow.
+    "ink": StylePreset(
+        label="水墨留白",
+        prompt=(
+            "Traditional Chinese ink painting on raw xuan rice paper, brush and black ink only, literati guohua "
+            "manner. Bold confident wet strokes with visible dry-brush texture and ink bleeding softly into the "
+            "fibre, tone built from three or four washes running pale grey to solid black, forms suggested "
+            "rather than outlined and left open at the edges. Vast empty paper as breathing space, the subject "
+            "set off-centre against a low horizon, distance carried by a paler wash and mist. Human figures "
+            "small, gestural and anonymous, three or four strokes each, dignified rather than detailed. Warm "
+            "ivory paper tone with faint fibre texture. Exactly one accent of vermilion red, no bigger than a "
+            "seal, and no other colour anywhere. "
+            "Not photorealistic, no 3D render, no colour painting, no pencil, no comic outlines, "
+            "no written characters or calligraphy, 16:9"
+        ),
+        medium="a Chinese ink-and-wash painting on rice paper",
+        avoid="photography, 3D rendering, or full-colour illustration",
+        grade="水墨意境",
+        title="ink",
     ),
-    # Hand-painted animation landscape: warm, dreamlike, storybook.
-    "ghibli": (
-        "Studio Ghibli inspired hand-painted anime landscape, nostalgic Japanese animation film look, lush green "
-        "floating islands drifting above a sea of soft white clouds, a small sailboat between them, warm golden "
-        "sunset light with a pastel pink and orange sky, gouache and watercolour textures, gentle painterly "
-        "brushwork, soft diffused light with no harsh shadows, wide peaceful storybook composition, wholesome "
-        "dreamlike atmosphere, not photorealistic, no 3D render, no neon, no chibi, 16:9"
+    # Physical and tactile, and hard to make ugly: shape and shadow only.
+    "papercut": StylePreset(
+        label="剪纸拼贴",
+        prompt=(
+            "Layered cut-paper collage photographed straight on, everything built from flat shapes scissor-cut "
+            "from coloured paper and stacked in three or four clearly separated depth planes, each layer "
+            "casting a soft real drop shadow on the one behind it so the image reads as a physical object. "
+            "Shapes bold, simplified and geometric, no outlines and no rendering, detail cut away rather than "
+            "drawn; figures are clean silhouettes with a single cut for an eye or a mouth. Five papers only -- "
+            "deep teal, warm terracotta, mustard, dusty rose and bone white -- each matte and uncoated with "
+            "visible fibre and slightly imperfect hand-cut edges. Even soft studio light from the upper left. "
+            "Graphic, tactile, warm. "
+            "Not photorealistic, no 3D render, no line art, no gradients inside a shape, no glossy material, 16:9"
+        ),
+        medium="a layered cut-paper collage",
+        avoid="photography, 3D rendering, or line-drawn illustration",
+        grade="牛皮纸",
+        title="paper",
     ),
-    # Dark cinematic photoreal: neon, smoke, rain, loneliness.
-    "noir": (
-        "Moody cinematic film still, night-time urban China, dramatic red and teal neon light cutting through haze "
-        "and drifting smoke, a lone middle-aged man in a work jacket or long coat beside a window with venetian "
-        "blind shadows or crossing a rainy street with headlight trails, wet asphalt reflections, deep blue shadows "
-        "against warm neon accents, anamorphic lens flare, high-contrast chiaroscuro, desaturated cinematic palette, "
-        "photorealistic, gritty melancholic big-city atmosphere, no cartoon, no illustration, 16:9"
+    # Two inks and a lot of bare paper. Loud and cheap-looking on purpose.
+    "riso": StylePreset(
+        label="复古套印",
+        prompt=(
+            "Two-colour risograph print on off-white uncoated paper, 1960s screen-printed poster aesthetic. "
+            "Only two spot inks, fluorescent orange and deep teal, overprinting into a third dark tone where "
+            "they cross; everywhere else is bare cream paper. Coarse visible halftone dot screens instead of "
+            "smooth tone, a deliberate registration offset of a millimetre or two so each ink sits slightly "
+            "beside its shape, uneven roller density, speckle and small print faults. Shapes chunky and heavily "
+            "simplified into confident mid-century flat forms with no fine detail, faces reduced to a few "
+            "decisive marks. Bold poster composition, one dominant figure or object, generous empty paper. "
+            "Not photorealistic, no 3D render, no smooth gradients, no full-colour palette, no digital gloss, 16:9"
+        ),
+        medium="a two-colour risograph poster print",
+        avoid="photography, 3D rendering, or full-colour illustration",
+        grade="复古工业",
+        title="poster",
     ),
-    # Magical-realism folk-tale night: lanterns, fireflies, deep blue.
-    "fantasy": (
-        "Cinematic magical realism night scene, a colossal ancient banyan tree with a small wooden house nested "
-        "among its roots, a lone figure holding a glowing paper lantern walking a stone causeway over still water, "
-        "drifting fireflies and floating light particles, misty deep-blue night against warm lantern glow, soft "
-        "volumetric lighting, Chinese fantasy folk-tale atmosphere, painterly photorealism, highly detailed, "
-        "no cartoon, no text, 16:9"
+    # Paint you can see the brush in. The softest, kindest look in the set.
+    "gouache": StylePreset(
+        label="水粉绘本",
+        prompt=(
+            "Hand-painted gouache storybook illustration, opaque matte paint on textured cold-press board, "
+            "visible directional brush strokes and small ridges of dried paint, edges soft and slightly "
+            "irregular where one colour was laid over another. Warm nostalgic palette of ochre, sage, dusty "
+            "rose, cream and faded denim blue, every colour mixed rather than pure, low saturation and high "
+            "value. Gentle late-afternoon light with long soft shadows and a warm glow, no hard specular "
+            "highlights. Simplified rounded figures in folk-illustration proportions with generous space around "
+            "them, faces friendly and unfussy. Tender and quiet, the world a little softer than the real one. "
+            "Not photorealistic, no 3D render, no ink outlines, no anime, no airbrush smoothness, no neon, 16:9"
+        ),
+        medium="a hand-painted gouache storybook illustration",
+        avoid="photography or 3D rendering",
+        grade="奶油",
+        title="paper",
     ),
-    # Candid photojournalism: natural light, real places, quiet dignity.
-    "documentary": (
-        "Documentary photograph at a misty Chinese fishing harbour at dawn, a weathered elderly fisherman in work "
-        "clothes mending a green fishing net on the stone dock, an old wooden fishing boat moored beside him, soft "
-        "golden morning light filtering through sea fog, muted natural colours, candid photojournalism style, "
-        "shallow depth of field, subtle 35mm film grain, photorealistic, no cartoon, no illustration, 16:9"
+    # Real photography, one hard light, most of the frame left in the dark.
+    "noir": StylePreset(
+        label="黑白电影",
+        prompt=(
+            "Black-and-white cinematic film still, 1950s film-noir photography on a 40mm anamorphic lens. Pure "
+            "monochrome with a deep crushed black point and clean specular whites, extreme chiaroscuro: a "
+            "single hard key from one side, most of the frame in shadow, the subject cut out by a rim of light. "
+            "Venetian blinds, window frames, railings and smoke throwing hard graphic shadows across faces and "
+            "walls. Wet streets, rain, cigarette haze and fog catching visible shafts of light. Real adults in "
+            "period-neutral coats and shirts, tense restrained body language, framed from slightly low or seen "
+            "through a doorway. Fine silver-halide grain, gentle vignette, slight halation in the highlights. "
+            "No colour, no cartoon, no illustration, no 3D render, no neon, 16:9"
+        ),
+        medium="a black-and-white film-noir photograph",
+        avoid="illustration, cartoon art, or 3D rendering",
+        grade="高清黑白",
+        title="white",
+    ),
+    # Also photography, and the exact opposite of noir: colour is the point.
+    "neon": StylePreset(
+        label="霓虹夜城",
+        prompt=(
+            "Photorealistic cinematic night frame, contemporary East Asian megacity after rain, fast anamorphic "
+            "lens shot wide open. The only light is neon and signage -- magenta, cyan, electric blue -- cutting "
+            "through humid haze, plus one warm sodium practical; everything else falls into deep blue-black "
+            "shadow. Wet asphalt and glass smearing the signs into long vertical reflections, steam off the "
+            "vents, headlight trails, horizontal lens flare and soft bloom around every source. One lone modern "
+            "figure kept small inside a huge frame of towers, walkways and cable runs, seen from behind or in "
+            "profile, the city doing the talking. Shallow depth of field, heavy bokeh, fine sensor noise, a "
+            "teal-and-magenta grade. "
+            "No cartoon, no illustration, no 3D game render, no daylight, 16:9"
+        ),
+        medium="a photorealistic neon-lit night photograph",
+        avoid="illustration, cartoon art, or a daylight scene",
+        grade="赛博朋克",
+        title="electric",
+    ),
+    # The bright counterpart to midnight: black pen on paper, one highlighter.
+    "notebook": StylePreset(
+        label="手绘笔记",
+        prompt=(
+            "Hand-drawn explainer sketch on off-white paper, the look of a well-kept notebook page. Everything "
+            "drawn with a black felt-tip marker in a loose confident single-weight line, slightly wobbly and "
+            "clearly human, with small pen overshoots at the corners; shading is quick parallel hatching, never "
+            "solid fill. Simple but expressive human figures with dot eyes and readable posture, objects "
+            "reduced to their most recognisable shape. One warm yellow highlighter swipe sits roughly behind "
+            "the single most important element, and a red pen is used sparingly for circles, ticks and emphasis "
+            "marks. Freehand dashed arrows and hand-drawn frames connect the ideas, the layout airy and "
+            "organised with plenty of empty paper. Faint paper grain, soft warm shadow at the edges. "
+            "Not photorealistic, no 3D render, no painted colour, no dark background, "
+            "no printed text or letterforms, 16:9"
+        ),
+        medium="a hand-drawn marker sketch on off-white paper",
+        avoid="photography, 3D rendering, or painted full-colour illustration",
+        grade="高清明亮",
+        title="marker",
     ),
 }
-DEFAULT_STYLE_PRESET = "story"
+DEFAULT_STYLE_PRESET = "midnight"
 
 # Art direction can also live in a dedicated JSON file, so presets are
 # editable (and addable) without touching the code. The file is created from
@@ -155,18 +338,86 @@ MANIFEST_VERSION = 5
 
 NARRATION_SUBTITLE_TRACK = "narration_subtitles"
 TITLE_OVERLAY_TRACK = "title_overlay"
+
+
+def title_track_name(index: int) -> str:
+    """One track per title line: title_overlay, title_overlay_2, ..."""
+    return TITLE_OVERLAY_TRACK if index == 0 else f"{TITLE_OVERLAY_TRACK}_{index + 1}"
+
+
 COLOR_GRADE_TRACK = "grade"
 
-DEFAULT_NARRATION_SUBTITLE_Y = -700
-DEFAULT_TITLE_Y = 520
+# ------------------------------------------------------------ typography ----
+# The numbers below are measured off the reference video (1920x1080, 30 fps)
+# rather than guessed, so the draft opens looking like it instead of merely
+# near it. What was measured, in frame pixels:
+#
+#   caption   em ~66 px, block centre at y 930 (86% of frame height), sitting
+#             on a dark translucent plate ~96 px tall
+#   title     em ~191 px (17.7% of frame height), two lines, line pitch 182 px
+#             (0.95 em -- tighter than any default), block centred on the frame,
+#             on screen for about 2.4 s
+#
+# Jianying does not expose text metrics, so sizes are carried in its own unit
+# and converted with SUBTITLE_EM_PX below.
 
 # Jianying does not expose its text metrics, so wrapping has to be estimated.
 # One CJK character at TextStyle.size = S is taken to be S * SUBTITLE_EM_PX
 # pixels wide, and a line to be that much again times SUBTITLE_LINE_SPACING.
-# These two only feed the wrap compensation; if captions still drift up or
-# down when they wrap, SUBTITLE_EM_PX is the single number to calibrate.
+# This is also how a size is derived from a measured pixel em, so if type comes
+# out uniformly too large or too small, this is the single number to calibrate.
 DEFAULT_SUBTITLE_EM_PX = 9.8
 SUBTITLE_LINE_SPACING = 1.25
+
+DEFAULT_NARRATION_SUBTITLE_Y = -700
+# 66 px / 9.8. The old 8.0 rendered around 78 px, noticeably heavier than the
+# reference, which keeps its captions deliberately quiet under the picture.
+DEFAULT_SUBTITLE_SIZE = 6.8
+# The reference caption is a medium-weight gothic, not the black weight this
+# tool used to set: the plate and the stroke do the legibility work, and a
+# black weight at this size closes up the counters.
+DEFAULT_SUBTITLE_FONT = "SourceHanSansCN_Medium"
+# Thinner than the old 24 because the plate already separates text from art.
+DEFAULT_SUBTITLE_BORDER_WIDTH = 16.0
+
+# Dead centre, which is where the reference puts it -- the opening title is the
+# picture for its two and a half seconds, not a caption above one.
+DEFAULT_TITLE_Y = 0
+# 191 px / 9.8.
+DEFAULT_TITLE_SIZE = 19.5
+DEFAULT_TITLE_SECONDS = 2.4
+DEFAULT_TITLE_BORDER_WIDTH = 22.0
+# Heavy condensed display face; the reference uses one of this family, and at
+# 19.5 a normal gothic looks thin and wide by comparison.
+DEFAULT_TITLE_FONT = "优设标题黑"
+# 182 / 191. Lines this large need to sit closer together than a text default
+# would put them, or the two halves of a title stop reading as one block.
+TITLE_LINE_PITCH = 0.95
+# Titles shorter than this stay on one line; longer ones break, because two
+# short lines can be set much larger than one long one.
+TITLE_SINGLE_LINE_MAX = 8
+MAX_TITLE_LINES = 3
+DEFAULT_TITLE_MAX_LINE_WIDTH = 0.86
+
+# Chinese line-breaking, kept to the two rules that actually show. There is no
+# word segmenter here, and adding one for a twelve-character title would be a
+# poor trade; these two character sets get the common cases right on their own.
+#
+#   a line must not START with a character that clings to the word before it
+#   a line must not END with one that clings to the word after it
+#
+# The second set is the one that matters. Coverbs, negations, modals and
+# numerals are exactly where a width-only break lands, and they are exactly the
+# characters that read as broken when they end up alone at the end of a line.
+TITLE_TRAILING_PUNCTUATION = "，,、。.；;：:！!？?～~—-…"
+TITLE_NEVER_STARTS_A_LINE = set("的地得了着过们吗呢吧啊呀嘛么儿" + TITLE_TRAILING_PUNCTUATION)
+TITLE_NEVER_ENDS_A_LINE = set(
+    "把被给让使叫令帮替陪为向往从由对跟和与同及比朝沿依按据于在到"   # coverbs, prepositions
+    "而但却且或若如即因所虽既除并也就都还又再才只不没别"             # conjunctions, negations
+    "很太最更挺极超特非真略稍颇愈越已曾正刚将快绝尤甚仅未"             # degree and time adverbs
+    "会能要可应该想愿敢肯须必得是有做去来说看用当成变"               # modals and light verbs
+    "一二三四五六七八九十百千万第每这那哪几多半整全另各某本上下前后"  # numerals, determiners
+)
 
 # Camera moves, cycled one per scene, described as a *direction* rather than
 # as fixed endpoints: (zoom, pan_x, pan_y), each -1 / 0 / +1.
@@ -193,16 +444,45 @@ KEN_BURNS_BASE_SCALE = 1.08
 KEN_BURNS_PAN_RATIO = 0.35
 KEN_BURNS_PAN_SAFETY = 0.9
 
-TITLE_PRESETS = {
-    # name: (fill rgb, border rgb)
-    # Warm off-white on dark brown; sits inside the muted "story" palette
-    # instead of fighting it the way pure red does.
-    "paper": ((0.97, 0.94, 0.88), (0.16, 0.12, 0.10)),
-    "red": ((0.92, 0.12, 0.12), (1.0, 1.0, 1.0)),
-    "white": ((1.0, 1.0, 1.0), (0.92, 0.12, 0.12)),
-    "gold": ((1.0, 0.82, 0.12), (0.10, 0.10, 0.10)),
+# Opening-title colourways. The reference title is not one colour: it runs
+# warm white into crimson across the block, with a near-black stroke and a hard
+# offset shadow under it. Jianying has no per-character colour, so the ramp is
+# approximated the way most creators do it by hand -- the first line carries
+# the primary, the rest carry the accent -- which is why every title here is
+# two colours rather than one.
+
+
+@dataclass(frozen=True)
+class TitleColours:
+    """primary = first line, accent = the lines under it, border = the stroke."""
+
+    primary: tuple[float, float, float]
+    accent: tuple[float, float, float]
+    border: tuple[float, float, float]
+
+
+TITLE_PRESETS: dict[str, TitleColours] = {
+    # The reference: warm white over crimson on a near-black stroke.
+    "crimson": TitleColours((0.98, 0.97, 0.95), (0.84, 0.13, 0.11), (0.05, 0.06, 0.09)),
+    # Warm off-white over amber on deep brown; sits inside a muted illustrated
+    # palette instead of fighting it the way pure red does.
+    "paper": TitleColours((0.97, 0.94, 0.88), (0.93, 0.66, 0.18), (0.16, 0.12, 0.10)),
+    # Ink on paper, with the vermilion of a seal for the accent.
+    "ink": TitleColours((0.09, 0.09, 0.10), (0.78, 0.18, 0.12), (0.98, 0.96, 0.91)),
+    # All white on a crimson stroke: the loudest option, and the safest over
+    # photography, where a coloured fill has nothing stable to sit against.
+    "white": TitleColours((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (0.86, 0.12, 0.12)),
+    "gold": TitleColours((1.0, 0.97, 0.90), (1.0, 0.80, 0.16), (0.09, 0.09, 0.09)),
+    # Risograph inks, and the paper is cream, so the type is the two inks and
+    # the stroke is the paper: deep teal over fluorescent orange, knocked out
+    # in cream. Cream type on cream paper would live entirely on its stroke.
+    "poster": TitleColours((0.05, 0.27, 0.29), (0.97, 0.36, 0.16), (0.99, 0.96, 0.89)),
+    # Neon: white over cyan on a near-black stroke that reads as the night.
+    "electric": TitleColours((1.0, 1.0, 1.0), (0.24, 0.85, 0.95), (0.04, 0.03, 0.10)),
+    # Marker on paper: black over red, knocked out with a white stroke.
+    "marker": TitleColours((0.11, 0.11, 0.13), (0.86, 0.16, 0.14), (1.0, 1.0, 1.0)),
 }
-DEFAULT_TITLE_STYLE = "paper"
+DEFAULT_TITLE_STYLE = "crimson"
 
 # Keys read from .env rather than the process environment, for --check-config.
 _ENV_FROM_FILE: set[str] = set()
@@ -358,10 +638,13 @@ def styles_file_path() -> Path:
 
 
 def builtin_styles_document() -> dict:
-    return {"default": DEFAULT_STYLE_PRESET, "presets": dict(STYLE_PRESETS)}
+    return {
+        "default": DEFAULT_STYLE_PRESET,
+        "presets": {name: preset.export_json() for name, preset in STYLE_PRESETS.items()},
+    }
 
 
-def load_style_presets() -> tuple[dict[str, str], str, str]:
+def load_style_presets() -> tuple[dict[str, StylePreset], str, str]:
     """Return (presets, default_name, source).
 
     Built-ins are always present; presets from the JSON file override
@@ -388,12 +671,12 @@ def load_style_presets() -> tuple[dict[str, str], str, str]:
         raise RuntimeError(f"{path} must be a JSON object with a \"presets\" mapping.")
     raw_presets = data.get("presets", data)
     if not isinstance(raw_presets, dict) or not raw_presets:
-        raise RuntimeError(f"{path}: \"presets\" must be a non-empty object of name -> prompt.")
-    for name, prompt in raw_presets.items():
+        raise RuntimeError(f"{path}: \"presets\" must be a non-empty object of style name -> style.")
+    for name, value in raw_presets.items():
         key = str(name).strip().lower()
-        if not key or not isinstance(prompt, str) or not prompt.strip():
-            raise RuntimeError(f"{path}: style {name!r} must map to a non-empty prompt string.")
-        presets[key] = prompt.strip()
+        if not key:
+            raise RuntimeError(f"{path}: a style name cannot be blank.")
+        presets[key] = StylePreset.parse(key, value, str(path))
     file_default = data.get("default")
     if file_default is not None:
         default_name = str(file_default).strip().lower()
@@ -411,6 +694,105 @@ def layout_y(pixels: int) -> float:
 
 def clamp_y(normalized: float) -> float:
     return max(-SAFE_NORMALIZED_Y, min(SAFE_NORMALIZED_Y, normalized))
+
+
+def characters_per_line(size: float, max_line_width: float, em_px: float) -> int:
+    """How many CJK characters fit on one line at this size."""
+    return max(1, int(max_line_width * CANVAS_WIDTH / max(1e-6, size * em_px)))
+
+
+def title_cut(text: str, limit: int, min_tail: int = 3) -> int:
+    """Pick where to break one title line, filling it as far as it reads well.
+
+    Fill-first rather than balance-first: it keeps the line count down, which
+    keeps the type large, and on the reference title it lands on exactly the
+    break a person chose by hand. The four positions below the limit are then
+    tried in turn so a particle never gets orphaned at either end.
+    """
+    high = max(1, min(limit, len(text) - min_tail))
+    low = max(1, high - 3)
+    best, best_score = high, None
+    for cut in range(high, low - 1, -1):
+        before, after = text[cut - 1], text[cut]
+        score = float(cut - high)  # 0 for a full line, -1 per character given up
+        if before in TITLE_TRAILING_PUNCTUATION:
+            score += 10.0
+        if before in TITLE_NEVER_ENDS_A_LINE:
+            score -= 8.0
+        if after in TITLE_NEVER_STARTS_A_LINE:
+            score -= 8.0
+        if before.isascii() and after.isascii() and before.isalnum() and after.isalnum():
+            score -= 12.0  # never split a run of digits or Latin letters
+        if best_score is None or score > best_score:
+            best, best_score = cut, score
+    return best
+
+
+def split_title_lines(title: str, max_characters: int,
+                      single_line_max: int = TITLE_SINGLE_LINE_MAX,
+                      max_lines: int = MAX_TITLE_LINES) -> list[str]:
+    """Break a title the way the reference does: two or three short, big lines.
+
+    A newline written into --title is obeyed as given. Everything else is
+    broken here rather than by Jianying's auto-wrap, because the wrap point
+    decides the shape of the whole opening frame and auto-wrap picks it purely
+    on width.
+    """
+    written = [part.strip() for part in re.split(r"[\r\n]+", title) if part.strip()]
+    if len(written) > 1:
+        return written[:max_lines]
+    text = re.sub(r"\s+", "", title.strip())
+    if not text:
+        return []
+    limit = max(2, max_characters)
+    if len(text) <= max(single_line_max, 0):
+        return [text]
+    lines: list[str] = []
+    rest = text
+    while len(lines) < max_lines - 1 and len(rest) > limit:
+        cut = title_cut(rest, limit)
+        lines.append(rest[:cut].rstrip(TITLE_TRAILING_PUNCTUATION))
+        rest = rest[cut:].lstrip(TITLE_TRAILING_PUNCTUATION)
+    lines.append(rest)
+    return [line for line in lines if line]
+
+
+def fit_title_size(lines: list[str], size: float, max_line_width: float, em_px: float) -> float:
+    """Shrink the title until its longest line fits inside the frame.
+
+    Only ever shrinks. A title long enough to trigger this is already at three
+    lines, so the alternative is Jianying wrapping it a fourth time and the
+    stacked lines drifting apart from the pitch computed here.
+    """
+    longest = max((len(line) for line in lines), default=0)
+    if longest <= 0:
+        return size
+    budget = max_line_width * CANVAS_WIDTH
+    needed = longest * size * em_px
+    return size if needed <= budget else max(1.0, size * budget / needed)
+
+
+def title_line_offsets(count: int, base_y: float, size: float, em_px: float) -> list[float]:
+    """Centre a stack of title lines on base_y at the reference line pitch.
+
+    Each line is its own text segment, because Jianying colours a segment as a
+    whole and the reference title changes colour partway down. That means the
+    line spacing is ours to set rather than the text engine's.
+    """
+    if count <= 0:
+        return []
+    pitch = size * em_px * TITLE_LINE_PITCH / CANVAS_HALF_HEIGHT
+    top = (count - 1) / 2
+    offsets = [base_y + (top - index) * pitch for index in range(count)]
+    # A block pushed past the safe area is moved as a whole. Clamping line by
+    # line would pile the outer lines on top of each other against the edge,
+    # which looks broken in a way an off-centre block does not.
+    shift = 0.0
+    if offsets[0] > SAFE_NORMALIZED_Y:
+        shift = SAFE_NORMALIZED_Y - offsets[0]
+    elif offsets[-1] < -SAFE_NORMALIZED_Y:
+        shift = -SAFE_NORMALIZED_Y - offsets[-1]
+    return [clamp_y(offset + shift) for offset in offsets]
 
 
 def subtitle_line_count(text: str, size: float, max_line_width: float, em_px: float) -> int:
@@ -465,6 +847,7 @@ class Config:
     image_concurrency: int
     image_style_prompt: str
     style_preset: str
+    style: StylePreset
     styles_source: str
 
     # Ark TTS
@@ -493,6 +876,7 @@ class Config:
     # Visual layout
     subtitle_y: float
     subtitle_size: float
+    subtitle_font: str
     subtitle_style: str
     subtitle_border_width: float
     subtitle_letter_spacing: int
@@ -501,11 +885,14 @@ class Config:
     subtitle_animation: str
     subtitle_animation_us: int
     title_style: str
+    title_font: str
     title_y: float
     title_size: float
     title_border_width: float
+    title_max_line_width: float
     title_us: int
     title_animation: str
+    title_outro: str
     ken_burns_rate: float
 
     @classmethod
@@ -514,15 +901,12 @@ class Config:
         if mode not in {"density", "quality"}:
             raise RuntimeError("SCENE_LENGTH_MODE must be either density or quality.")
 
-        subtitle_style = env_value("SUBTITLE_STYLE", "outline").lower()
-        if subtitle_style not in {"outline", "box"}:
-            raise RuntimeError("SUBTITLE_STYLE must be either outline or box.")
+        subtitle_style = env_value("SUBTITLE_STYLE", "plate").lower()
+        if subtitle_style not in {"plate", "outline", "box"}:
+            raise RuntimeError("SUBTITLE_STYLE must be one of: plate, outline, box.")
 
-        title_style = env_value("TITLE_STYLE", DEFAULT_TITLE_STYLE).lower()
-        if title_style not in TITLE_PRESETS:
-            options = ", ".join(sorted(TITLE_PRESETS))
-            raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
-
+        # The art style is resolved first because it supplies the defaults for
+        # the colour grade and the title colourway, which .env then overrides.
         style_presets, style_default, styles_source = load_style_presets()
 
         style_preset = env_value("IMAGE_STYLE_PRESET", style_default).lower()
@@ -533,6 +917,12 @@ class Config:
                 f"(Presets come from {styles_file_path()}; edit it or point "
                 f"{STYLES_FILE_SETTING} at another file to add your own.)"
             )
+        style = style_presets[style_preset]
+
+        title_style = env_value("TITLE_STYLE", style.title).lower()
+        if title_style not in TITLE_PRESETS:
+            options = ", ".join(sorted(TITLE_PRESETS))
+            raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
 
         draft_dir = Path(required("JIAN_YING_DRAFT_DIR")).expanduser()
         if not draft_dir.is_dir():
@@ -562,8 +952,9 @@ class Config:
             image_concurrency=bounded_env_int(
                 "IMAGE_CONCURRENCY", DEFAULT_IMAGE_CONCURRENCY, 1, MAX_IMAGE_CONCURRENCY
             ),
-            image_style_prompt=env_value("IMAGE_STYLE_PROMPT", style_presets[style_preset]),
+            image_style_prompt=env_value("IMAGE_STYLE_PROMPT", style.prompt),
             style_preset=style_preset,
+            style=style,
             styles_source=styles_source,
 
             ark_tts_url=env_value("ARK_TTS_URL", DEFAULT_ARK_TTS_URL),
@@ -588,16 +979,19 @@ class Config:
             ),
             ending_hold_us=round(bounded_env_float("ENDING_HOLD_SECONDS", 1.8, 0.0, 10.0) * 1_000_000),
             watermark_path=_optional_asset("WATERMARK_PATH", {".png", ".jpg", ".jpeg"}),
-            color_grade=env_value("COLOR_GRADE", "灰调中性"),
+            color_grade=env_value("COLOR_GRADE", style.grade),
             color_grade_intensity=bounded_env_float("COLOR_GRADE_INTENSITY", 12.0, 0.0, 100.0),
 
             subtitle_y=layout_y(bounded_env_int(
                 "NARRATION_SUBTITLE_Y", DEFAULT_NARRATION_SUBTITLE_Y,
                 -LAYOUT_REFERENCE_HALF_HEIGHT, LAYOUT_REFERENCE_HALF_HEIGHT,
             )),
-            subtitle_size=bounded_env_float("NARRATION_SUBTITLE_SIZE", 8.0, 1.0, 30.0),
+            subtitle_size=bounded_env_float("NARRATION_SUBTITLE_SIZE", DEFAULT_SUBTITLE_SIZE, 1.0, 30.0),
+            subtitle_font=env_value("SUBTITLE_FONT", DEFAULT_SUBTITLE_FONT),
             subtitle_style=subtitle_style,
-            subtitle_border_width=bounded_env_float("SUBTITLE_BORDER_WIDTH", 24.0, 0.0, 40.0),
+            subtitle_border_width=bounded_env_float(
+                "SUBTITLE_BORDER_WIDTH", DEFAULT_SUBTITLE_BORDER_WIDTH, 0.0, 40.0
+            ),
             subtitle_letter_spacing=bounded_env_int("SUBTITLE_LETTER_SPACING", 2, 0, 20),
             subtitle_max_line_width=bounded_env_float("SUBTITLE_MAX_LINE_WIDTH", 0.88, 0.4, 1.0),
             subtitle_em_px=bounded_env_float("SUBTITLE_EM_PX", DEFAULT_SUBTITLE_EM_PX, 1.0, 40.0),
@@ -606,14 +1000,23 @@ class Config:
                 bounded_env_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000
             ),
             title_style=title_style,
+            title_font=env_value("TITLE_FONT", DEFAULT_TITLE_FONT),
             title_y=layout_y(bounded_env_int(
                 "TITLE_Y", DEFAULT_TITLE_Y,
                 -LAYOUT_REFERENCE_HALF_HEIGHT, LAYOUT_REFERENCE_HALF_HEIGHT,
             )),
-            title_size=bounded_env_float("TITLE_SIZE", 14.0, 1.0, 30.0),
-            title_border_width=bounded_env_float("TITLE_BORDER_WIDTH", 28.0, 0.0, 40.0),
-            title_us=round(bounded_env_float("TITLE_SECONDS", 3.0, 0.5, 15.0) * 1_000_000),
-            title_animation=env_value("TITLE_ANIMATION", "冲屏位移"),
+            title_size=bounded_env_float("TITLE_SIZE", DEFAULT_TITLE_SIZE, 1.0, 30.0),
+            title_border_width=bounded_env_float(
+                "TITLE_BORDER_WIDTH", DEFAULT_TITLE_BORDER_WIDTH, 0.0, 40.0
+            ),
+            title_max_line_width=bounded_env_float(
+                "TITLE_MAX_LINE_WIDTH", DEFAULT_TITLE_MAX_LINE_WIDTH, 0.4, 1.0
+            ),
+            title_us=round(
+                bounded_env_float("TITLE_SECONDS", DEFAULT_TITLE_SECONDS, 0.5, 15.0) * 1_000_000
+            ),
+            title_animation=env_value("TITLE_ANIMATION", "缩小"),
+            title_outro=env_value("TITLE_OUTRO", "放大"),
             # 0 disables the camera move entirely; KEN_BURNS=0 still works.
             ken_burns_rate=(
                 bounded_env_float("KEN_BURNS_RATE", DEFAULT_KEN_BURNS_RATE, 0.0, 0.2)
@@ -643,9 +1046,11 @@ def describe_configuration(cfg: Config) -> None:
     subtitle_px = round(cfg.subtitle_y * CANVAS_HALF_HEIGHT)
     title_px = round(cfg.title_y * CANVAS_HALF_HEIGHT)
     print(f"Canvas: {CANVAS_WIDTH}x{CANVAS_HEIGHT} @30fps (landscape)")
-    print(f"Art style: {cfg.style_preset}"
+    label = f" {cfg.style.label}" if cfg.style.label else ""
+    print(f"Art style: {cfg.style_preset}{label}"
           f"{' (overridden by IMAGE_STYLE_PROMPT)' if os.getenv('IMAGE_STYLE_PROMPT', '').strip() else ''}"
           f"  [{cfg.styles_source}]")
+    print(f"  rendered as: {cfg.style.medium}")
     print(
         f"Subtitle Y: {os.getenv('NARRATION_SUBTITLE_Y', DEFAULT_NARRATION_SUBTITLE_Y)} "
         f"-> transform_y {cfg.subtitle_y:.3f} -> {abs(subtitle_px)} px "
@@ -653,6 +1058,12 @@ def describe_configuration(cfg: Config) -> None:
         f"({round(CANVAS_HALF_HEIGHT + subtitle_px)} px from the bottom edge)"
     )
     print(f"Title Y:    transform_y {cfg.title_y:.3f} ({round(CANVAS_HALF_HEIGHT - title_px)} px from the top edge)")
+    print(f"Caption:    {cfg.subtitle_font} at size {cfg.subtitle_size:g} "
+          f"(~{round(cfg.subtitle_size * cfg.subtitle_em_px)} px per character), style {cfg.subtitle_style}")
+    limit = characters_per_line(cfg.title_size, cfg.title_max_line_width, cfg.subtitle_em_px)
+    print(f"Title:      {cfg.title_font} at size {cfg.title_size:g} "
+          f"(~{round(cfg.title_size * cfg.subtitle_em_px)} px per character, {limit} per line), "
+          f"colourway {cfg.title_style}, {cfg.title_us / 1e6:.1f}s")
     if cfg.bgm_volume > 0:
         lift = max(cfg.bgm_volume, cfg.bgm_lift_volume)
         print(f"BGM volume: {cfg.bgm_volume:.2f} under speech ({20 * math.log10(cfg.bgm_volume):.1f} dB), "
@@ -663,8 +1074,9 @@ def describe_configuration(cfg: Config) -> None:
           f"{cfg.ending_hold_us / 1e6:.2f}s held at the end")
     print(f"Colour grade: {cfg.color_grade or 'none'} at {cfg.color_grade_intensity:.0f}%")
     for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR",
-                 "NARRATION_SUBTITLE_Y", "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT",
-                 STYLES_FILE_SETTING):
+                 "NARRATION_SUBTITLE_Y", "NARRATION_SUBTITLE_SIZE", "SUBTITLE_FONT",
+                 "TITLE_STYLE", "TITLE_FONT", "TITLE_SIZE", "COLOR_GRADE",
+                 "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT", STYLES_FILE_SETTING):
         print(f"  {name}: {env_source(name)}")
 
 
@@ -734,8 +1146,10 @@ def compose_image_prompt(cfg: Config, scene: Scene, characters: list[Character])
             f"every panel: {'; '.join(described)}. "
         )
     framing = SHOT_SIZES.get(scene.shot_size, SHOT_SIZES[DEFAULT_SHOT_SIZE])
+    medium = getattr(cfg, "style", None)
+    medium = medium.medium if medium else DEFAULT_STYLE_MEDIUM
     return (
-        f"{scene.image_prompt.strip().rstrip('.')}. Usage: one 16:9 Chinese narrative manhua panel matched directly "
+        f"{scene.image_prompt.strip().rstrip('.')}. Usage: one 16:9 frame rendered as {medium}, matched directly "
         "to this exact subtitle. "
         f"{framing} "
         f"{cast_block}{style}. Depict the concrete moment, people, action, setting, and emotion described by this subtitle. "
@@ -808,7 +1222,8 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
             "in every panel, so they must not change. "
         )
     return (
-        "You are the storyboard director for a Chinese narration video rendered entirely as a mature social-realism manhua. "
+        "You are the storyboard director for a Chinese narration video rendered entirely as "
+        f"{cfg.style.medium}. "
         f"Split this part ({batch_number}/{batch_count}) of the copy into about {batch_target} independent subtitle scenes, "
         f"never more than {batch_maximum}. {length_instruction}Preserve the complete meaning and original order. "
         "One subtitle scene must map to exactly one image. For every scene, write image_prompt as one concise, coherent English "
@@ -816,8 +1231,7 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         "objects, action, location, time, mood, and relationship explicitly present in the subtitle. If the subtitle describes a "
         "concrete event, depict that event literally in a believable everyday setting. If it is abstract, use the simplest human "
         "situation that communicates the whole sentence without changing its meaning. The scene content should feel true to life, "
-        "but the rendering must remain a flat Chinese webtoon manhua panel with thick black outlines and soft even "
-        "shading, never photography or 3D. Do not force a finance theme. "
+        f"but every frame must remain {cfg.style.medium}, never {cfg.style.avoid}. Do not force a finance theme. "
         "Never add charts, tables, dashboards, graphs, market arrows, coins, banks, office imagery, or decorative business symbols "
         "unless that exact subtitle genuinely calls for them. Do not visually magnify an incidental word at the expense of the full "
         "sentence. Favor a natural human moment and a clear action over abstract icons or infographic composition. Keep screens, "
@@ -1156,6 +1570,7 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         TextBackground,
         TextBorder,
         TextIntro,
+        TextOutro,
         TextSegment,
         TextShadow,
         TextStyle,
@@ -1173,6 +1588,10 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         None if cfg.title_animation.lower() in {"", "none", "off"}
         else resolve_enum(TextIntro, cfg.title_animation, "TITLE_ANIMATION")
     )
+    title_outro = (
+        None if cfg.title_outro.lower() in {"", "none", "off"}
+        else resolve_enum(TextOutro, cfg.title_outro, "TITLE_OUTRO")
+    )
     grade = (
         None if cfg.color_grade.lower() in {"", "none", "off"} or not cfg.color_grade_intensity
         else resolve_enum(FilterType, cfg.color_grade, "COLOR_GRADE")
@@ -1188,12 +1607,22 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         draft.append_track(TrackSpec(TrackType.video, "watermark")) if cfg.watermark_path else None
     )
     narration_subtitle_track = draft.append_track(TrackSpec(TrackType.text, NARRATION_SUBTITLE_TRACK))
-    title_overlay_track = draft.append_track(TrackSpec(TrackType.text, TITLE_OVERLAY_TRACK))
+    # The title is one text segment per line, and the lines are on screen at
+    # the same time, so each needs its own track: a Jianying text track holds
+    # one segment at a time.
+    title_lines = split_title_lines(
+        title, characters_per_line(cfg.title_size, cfg.title_max_line_width, cfg.subtitle_em_px)
+    )
+    title_tracks = [
+        draft.append_track(TrackSpec(TrackType.text, title_track_name(index)))
+        for index in range(len(title_lines))
+    ]
     bgm_material = AudioMaterial(str(cfg.bgm_path)) if cfg.bgm_path else None
     bgm_track = draft.append_track(TrackSpec(TrackType.audio, "BGM")) if bgm_material else None
     grade_track = draft.append_track(TrackSpec(TrackType.filter, COLOR_GRADE_TRACK)) if grade else None
 
-    subtitle_font = FontType["特黑体"]
+    subtitle_font = resolve_enum(FontType, cfg.subtitle_font, "SUBTITLE_FONT")
+    title_font = resolve_enum(FontType, cfg.title_font, "TITLE_FONT")
     if cfg.subtitle_style == "box":
         subtitle_colour, subtitle_border, subtitle_background = (
             (0.0, 0.0, 0.0),
@@ -1201,15 +1630,25 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
             TextBackground(color="#000000", alpha=0.3, round_radius=0.2, height=0.14,
                            width=0.14, horizontal_offset=0.5, vertical_offset=0.5),
         )
-    else:
-        # White fill on a black stroke, plus a soft shadow: the standard
-        # short-form caption treatment, and legible over any panel. The stroke
-        # is deliberately below the maximum -- a 40-wide outline muddies the
-        # flat pale panels the "story" art direction produces.
+    elif cfg.subtitle_style == "outline":
+        # White fill on a black stroke and a soft shadow, no plate. Cleanest
+        # over pale art, where a dark plate reads as a bar stuck on the frame.
         subtitle_colour, subtitle_border, subtitle_background = (
             (1.0, 1.0, 1.0),
             TextBorder(color=(0.0, 0.0, 0.0), width=cfg.subtitle_border_width),
             None,
+        )
+    else:
+        # The reference treatment: white text on a thin dark stroke, sitting on
+        # a dark translucent plate roughly one and a half line-heights tall.
+        # The plate is what lets the caption stay this small and this light and
+        # still hold against a busy panel; without it the size would have to go
+        # back up and the caption would start competing with the picture.
+        subtitle_colour, subtitle_border, subtitle_background = (
+            (1.0, 1.0, 1.0),
+            TextBorder(color=(0.04, 0.06, 0.10), width=cfg.subtitle_border_width),
+            TextBackground(color="#0B1826", alpha=0.55, round_radius=0.12, height=0.30,
+                           width=0.10, horizontal_offset=0.5, vertical_offset=0.5),
         )
 
     materials = [AudioMaterial(scene.audio_path or "") for scene in scenes]
@@ -1272,7 +1711,7 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         )
         draft.add_segment(watermark, watermark_track)
 
-    add_title(cfg, draft, title_overlay_track, title, total_duration, title_intro, subtitle_font)
+    add_title(cfg, draft, title_tracks, title_lines, total_duration, title_intro, title_outro, title_font)
     if bgm_material is not None and bgm_track is not None:
         speech = [(timing.narration_start, timing.narration_end) for timing in timings]
         add_bgm(cfg, draft, bgm_track, bgm_material, total_duration, speech)
@@ -1294,26 +1733,41 @@ def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int) 
     draft.add_segment(segment, track)
 
 
-def add_title(cfg: Config, draft: Any, track: Any, title: str, total_duration: int,
-              title_intro: Any, font: Any) -> None:
+def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], total_duration: int,
+              title_intro: Any, title_outro: Any, font: Any) -> None:
+    """Stack the title lines, first line in the primary colour, rest in accent.
+
+    The reference title runs warm white into crimson across a two-line block.
+    Jianying colours a text segment as a whole, so the ramp becomes one segment
+    per line -- which also puts the line pitch under our control, and the
+    reference sets it tighter than any text default would.
+    """
     from pyJianYingDraft import ClipSettings, TextBorder, TextSegment, TextShadow, TextStyle, Timerange
 
     duration = min(total_duration, cfg.title_us)
-    if duration <= 0 or not title.strip():
+    if duration <= 0 or not lines:
         return
-    fill, border = TITLE_PRESETS[cfg.title_style]
-    segment = TextSegment(
-        title, Timerange(0, duration),
-        font=font,
-        style=TextStyle(size=cfg.title_size, bold=True, color=fill, align=1,
-                        letter_spacing=cfg.subtitle_letter_spacing, auto_wrapping=True),
-        border=TextBorder(color=border, width=cfg.title_border_width),
-        shadow=TextShadow(alpha=0.75, diffuse=25.0, distance=10.0, angle=-90.0),
-        clip_settings=ClipSettings(transform_x=0.0, transform_y=cfg.title_y),
-    )
-    if title_intro is not None:
-        segment.add_animation(title_intro, duration=min(400_000, duration))
-    draft.add_segment(segment, track)
+    colours = TITLE_PRESETS[cfg.title_style]
+    size = fit_title_size(lines, cfg.title_size, cfg.title_max_line_width, cfg.subtitle_em_px)
+    offsets = title_line_offsets(len(lines), cfg.title_y, size, cfg.subtitle_em_px)
+    for index, (line, track, offset) in enumerate(zip(lines, tracks, offsets, strict=True)):
+        segment = TextSegment(
+            line, Timerange(0, duration),
+            font=font,
+            style=TextStyle(size=size, bold=True, align=1,
+                            color=colours.primary if index == 0 else colours.accent,
+                            letter_spacing=cfg.subtitle_letter_spacing, auto_wrapping=False),
+            border=TextBorder(color=colours.border, width=cfg.title_border_width),
+            # Hard and offset down-right rather than soft and centred: the
+            # reference shadow reads as a second layer of type behind the first.
+            shadow=TextShadow(alpha=0.85, diffuse=8.0, distance=14.0, angle=-55.0),
+            clip_settings=ClipSettings(transform_x=0.0, transform_y=offset),
+        )
+        if title_intro is not None:
+            segment.add_animation(title_intro, duration=min(500_000, duration))
+        if title_outro is not None:
+            segment.add_animation(title_outro, duration=min(500_000, duration))
+        draft.add_segment(segment, track)
 
 
 def plan_timeline(durations: list[int], pauses: list[bool], lead_us: int,
