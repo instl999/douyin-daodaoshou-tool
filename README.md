@@ -2,6 +2,8 @@
 
 复刻抖音博主「心理叨叨兽」（[博主主页](https://v.douyin.com/AYhnYiaH0uo/)）的同款视频：把一段中文文案，变成一份可以在剪映专业版里继续编辑的草稿 —— AI 拆分镜、逐句配音、逐句生成画面，然后自动铺好视觉、旁白、字幕、标题、音效、BGM 和调色轨道。
 
+**自带火山方舟 Agent Plan API 支持**：分镜、生图、配音共用一把 `ARK_API_KEY`，全部走 Agent Plan 套餐 —— **生图不额外计费**。
+
 生成的是**草稿**而不是成片 —— 所有素材和关键帧都在时间轴上，你可以随时手动改，再自己导出。
 
 English documentation: [README.en.md](README.en.md)
@@ -72,7 +74,7 @@ python animated_caption_draft.py --draft-name my_story --title "示例标题" --
 - Windows 10/11
 - Python 3.10 或更高版本
 - 剪映专业版
-- 火山方舟 Agent Plan API Key（分镜、生图、语音合成共用同一把）
+- 火山方舟 Agent Plan API Key（分镜、生图、语音合成共用同一把；Agent Plan 套餐内生图不额外计费）
 
 ## 准备本地素材
 
