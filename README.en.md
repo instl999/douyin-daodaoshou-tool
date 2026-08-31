@@ -60,7 +60,7 @@ This is what separates it from a batch image slideshow.
 
 | | Behaviour |
 | --- | --- |
-| **Consistent art direction** | One style prompt for the whole video: three presets, or write your own |
+| **Consistent art direction** | One style prompt for the whole video: seven presets (see `styles.json`, editable and extensible), or write your own |
 | **Consistent cast** | The storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds |
 | **Varied framing** | Wide / medium / close chosen per line — wide to open a section and establish a place, close for a feeling, a turn or a conclusion |
 | **One image, one whole shot** | `01.png` runs to its end and `02.png` follows; an image is never cut into two segments |
@@ -97,21 +97,35 @@ Point `.env` at relative or absolute paths. Leave BGM and watermark empty to ski
 
 ## Where the art direction lives
 
+There are **7 built-in presets**, all kept in **`styles.json`** (repository root) — no code changes needed:
+
+| Preset | Look |
+| --- | --- |
+| `story` (default) | Emotional-story manhua: thick even ink lines, flat low-saturation colour, rosy cheeks, sparse backgrounds — the easiest to keep consistent |
+| `webtoon` | Korean-style realistic webtoon: thinner lines, softer rendering, restrained colour |
+| `cinematic` | Saturated deep navy with high-contrast cinematic lighting (the old default) |
+| `ghibli` | Hand-painted Ghibli-style animation: floating islands above cloud seas, watercolour textures, warm golden light |
+| `noir` | Dark cinematic photoreal: red/teal neon, smoke and rain, high-contrast chiaroscuro, lonely big-city mood |
+| `fantasy` | Magical-realism night: giant banyan and lanterns, fireflies, deep-blue mist, Chinese folk-tale atmosphere |
+| `documentary` | Photojournalism: misty harbour dawn, natural light, 35mm film grain |
+
 Four entry points, ordered from the smallest change to the largest:
 
-| What you want | Where | Exact location |
-| --- | --- | --- |
-| Switch to one of the three presets | `IMAGE_STYLE_PRESET` in `.env` | [`.env.example`](.env.example) line 142 — `story` / `webtoon` / `cinematic` |
-| Write your own complete style description | `IMAGE_STYLE_PROMPT` in `.env` | [`.env.example`](.env.example) line 144 — overrides the preset entirely (English descriptions work best) |
-| Tweak the wording of one preset | The `STYLE_PRESETS` dict in the code | [`animated_caption_draft.py`](animated_caption_draft.py) lines 55–88; the default `story` preset starts at line 58 |
-| Change the default preset | `DEFAULT_STYLE_PRESET` in the code | [`animated_caption_draft.py`](animated_caption_draft.py) line 89 |
+| What you want | Where |
+| --- | --- |
+| Switch to another preset | `IMAGE_STYLE_PRESET` in `.env` — the value is any key in [styles.json](styles.json) |
+| Tweak a preset or add your own | Edit [styles.json](styles.json): change an existing entry under `presets`, or add a new key and set `IMAGE_STYLE_PRESET` to it; change `"default"` and even `.env` can stay untouched |
+| Keep the file elsewhere / rotate several palettes | `IMAGE_STYLES_FILE` in `.env` points at any JSON file (relative paths resolve against the repo root) |
+| One-off complete description, without touching files | `IMAGE_STYLE_PROMPT` in `.env` overrides the preset entirely (English descriptions work best) |
 
-Related settings:
+Notes:
 
+- If `styles.json` is missing it is created from the built-ins on first run; a broken file (invalid JSON, `"default"` pointing at an unknown key) **fails with an error locating the problem** instead of silently falling back
+- A copy of the built-ins stays in the code (the `STYLE_PRESETS` dict at [`animated_caption_draft.py`](animated_caption_draft.py) line 55); presets of the same name in `styles.json` override it — **upgrading the code will not wipe your edits**
 - `ARK_IMAGE_SEED` ([`.env.example`](.env.example) line 22): a fixed seed keeps the look stable and reruns reproducible
 - `COLOR_GRADE`: one filter across the whole video. The final look comes from the **style prompt plus the filter**; set to `none` to disable
-- The style prompt is appended after each scene description by `compose_image_prompt()` ([`animated_caption_draft.py`](animated_caption_draft.py) line 622) — when the pictures go wrong, run `--plan-only` first: if the scene description itself went astray, changing the style will not help
-- `--check-config` prints which style is in effect and where it came from (`.env` / process environment / default)
+- The style prompt is appended after each scene description by `compose_image_prompt()` ([`animated_caption_draft.py`](animated_caption_draft.py) line 726) — when the pictures go wrong, run `--plan-only` first: if the scene description itself went astray, changing the style will not help
+- `--check-config` prints which style is in effect and where it came from (which file / `.env` / default)
 
 ---
 
@@ -179,7 +193,8 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `ARK_API_KEY` | empty | Ark Agent Plan key, shared by all three models |
 | `ARK_TTS_VOICE_TYPE` | sample voice | Voice ID |
 | `JIAN_YING_DRAFT_DIR` | empty | Local Jianying draft root |
-| `IMAGE_STYLE_PRESET` | `story` | Whole-video art direction |
+| `IMAGE_STYLE_PRESET` | `story` | Whole-video art direction; see [styles.json](styles.json) |
+| `IMAGE_STYLES_FILE` | empty | Path to the styles JSON; empty uses `styles.json` in the repo root |
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. **The only pacing control**: lower means faster cuts, more images, higher cost |
 | `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second |
 | `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph |
