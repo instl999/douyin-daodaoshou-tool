@@ -175,7 +175,30 @@ These numbers were measured frame by frame off the reference video (1920x1080), 
 | Title size | ~191 px (18% of frame height) | `TITLE_SIZE=19.5` → ~191 px |
 | Title position | block centred on the frame | `TITLE_Y=0` |
 | Title line pitch | 182 px (0.95 em) | `TITLE_LINE_PITCH=0.95` |
-| Title duration | ~2.4 s | `TITLE_SECONDS=2.4` |
+| Title duration | ~2.4 s (stretched when the voice runs longer) | `TITLE_SECONDS=2.4` |
+
+### The opening: cue, spoken title, copy
+
+The opening title is read aloud now. It used to be drawn and never spoken —
+and a `--title` says something the copy does not, so every video opened on a
+silent piece of large type.
+
+```
+0.00s  the opening cue lands, the title appears
+0.45s  the title's voice, into the cue's decay rather than over its impact
+~2.1s  the first line of the copy
+```
+
+`OPENING_LEAD_SECONDS` (0.8 s) is now a **floor, not the answer**: the head
+holds for as long as the title takes to read, plus a 0.25 s breath. 0.8 s fits
+the cue landing on its own and about half a spoken title — left alone, the copy
+talks over the title's own voice. The overlay is held to match, so the title
+never vanishes mid-sentence.
+
+The title gets no caption of its own: the large type in the middle of the frame
+is its caption.
+
+`SPEAK_TITLE=0` turns it off and the timeline returns exactly to what it was.
 
 Two things work differently from before and are worth spelling out.
 

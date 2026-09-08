@@ -50,6 +50,15 @@ DEFAULT_ARK_IMAGE_MODEL = "doubao-seedream-5.0-lite"
 DEFAULT_ARK_TTS_MODEL = "seed-tts-2.0"
 DEFAULT_OPENING_SOUND_PATH = "assets/opening_dong.mp3"
 
+# The stinger lands first and the title is read over its decay. Measured off
+# the cue itself: the impact peaks in its first 0.25 s and is 10 dB down by
+# 0.5 s, so a voice starting at 0.45 s speaks into the tail rather than over
+# the hit.
+DEFAULT_TITLE_LEAD_SECONDS = 0.45
+# A breath between the title and the first line of the copy, so the two do not
+# run together as one sentence.
+TITLE_TAIL_US = 250_000
+
 # Whole-video art direction. Nine presets; pick one with IMAGE_STYLE_PRESET.
 #
 # A preset is more than a prompt. Three other things have to move with it, or
@@ -863,6 +872,8 @@ class Config:
     opening_sound_path: Path
     opening_sound_volume: float
     opening_lead_us: int
+    speak_title: bool
+    title_lead_us: int
     bgm_path: Path | None
     bgm_volume: float
     bgm_lift_volume: float
@@ -970,6 +981,11 @@ class Config:
             ),
             opening_sound_volume=bounded_env_float("OPENING_SOUND_VOLUME", 0.7, 0.0, 2.0),
             opening_lead_us=round(bounded_env_float("OPENING_LEAD_SECONDS", 0.8, 0.0, 5.0) * 1_000_000),
+            speak_title=env_flag("SPEAK_TITLE", True),
+            title_lead_us=round(
+                bounded_env_float("TITLE_LEAD_SECONDS", DEFAULT_TITLE_LEAD_SECONDS, 0.0, 3.0)
+                * 1_000_000
+            ),
             bgm_path=_optional_asset("BGM_PATH", {".mp3", ".wav"}),
             bgm_volume=bounded_env_float("BGM_VOLUME", 0.10, 0.0, 1.0),
             bgm_lift_volume=bounded_env_float("BGM_LIFT_VOLUME", 0.20, 0.0, 1.0),
@@ -1558,7 +1574,8 @@ def validate_draft_target(cfg: Config, draft_name: str, replace: bool) -> None:
         )
 
 
-def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool, title: str) -> Path:
+def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool,
+                title: str, title_audio: Path | None = None) -> Path:
     from pyJianYingDraft import (
         AudioMaterial,
         AudioSegment,
@@ -1654,10 +1671,20 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
     materials = [AudioMaterial(scene.audio_path or "") for scene in scenes]
     for scene, material in zip(scenes, materials, strict=True):
         scene.duration_us = material.duration
+
+    # The title is read aloud over the stinger's decay, and the copy waits for
+    # it. Without the wait the first line talks over the title's own voice: the
+    # configured 0.8 s lead is enough for the stinger alone and about half of
+    # what a spoken title needs.
+    title_material = AudioMaterial(str(title_audio)) if title_audio else None
+    lead_us = opening_lead(cfg.opening_lead_us,
+                           title_material.duration if title_material else 0,
+                           cfg.title_lead_us)
+
     timings, total_duration = plan_timeline(
         [material.duration for material in materials],
         [scene.pause_after for scene in scenes],
-        cfg.opening_lead_us, cfg.paragraph_pause_us, cfg.ending_hold_us,
+        lead_us, cfg.paragraph_pause_us, cfg.ending_hold_us,
     )
 
     for index, (scene, audio, timing) in enumerate(zip(scenes, materials, timings, strict=True), 1):
@@ -1703,6 +1730,14 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         draft.add_filter(grade, Timerange(0, total_duration), COLOR_GRADE_TRACK,
                          cfg.color_grade_intensity)
 
+    title_span: tuple[int, int] | None = None
+    if title_material is not None:
+        title_span = (cfg.title_lead_us, cfg.title_lead_us + title_material.duration)
+        draft.add_segment(
+            AudioSegment(title_material,
+                         Timerange(cfg.title_lead_us, title_material.duration)),
+            audio_track)
+
     add_opening_sound(cfg, draft, opening_sfx_track, total_duration)
     if watermark_track is not None and cfg.watermark_path:
         watermark = VideoSegment(
@@ -1711,9 +1746,15 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         )
         draft.add_segment(watermark, watermark_track)
 
-    add_title(cfg, draft, title_tracks, title_lines, total_duration, title_intro, title_outro, title_font)
+    # The overlay holds at least as long as the lead: a title that vanishes
+    # while its own voice is still reading it reads as a timing bug.
+    title_hold = max(cfg.title_us, lead_us)
+    add_title(cfg, draft, title_tracks, title_lines, total_duration, title_intro,
+              title_outro, title_font, title_hold)
     if bgm_material is not None and bgm_track is not None:
         speech = [(timing.narration_start, timing.narration_end) for timing in timings]
+        if title_span is not None:
+            speech.insert(0, title_span)
         add_bgm(cfg, draft, bgm_track, bgm_material, total_duration, speech)
 
     draft.save()
@@ -1734,7 +1775,8 @@ def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int) 
 
 
 def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], total_duration: int,
-              title_intro: Any, title_outro: Any, font: Any) -> None:
+              title_intro: Any, title_outro: Any, font: Any,
+              hold_us: int | None = None) -> None:
     """Stack the title lines, first line in the primary colour, rest in accent.
 
     The reference title runs warm white into crimson across a two-line block.
@@ -1744,7 +1786,7 @@ def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], tota
     """
     from pyJianYingDraft import ClipSettings, TextBorder, TextSegment, TextShadow, TextStyle, Timerange
 
-    duration = min(total_duration, cfg.title_us)
+    duration = min(total_duration, cfg.title_us if hold_us is None else hold_us)
     if duration <= 0 or not lines:
         return
     colours = TITLE_PRESETS[cfg.title_style]
@@ -1768,6 +1810,19 @@ def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], tota
         if title_outro is not None:
             segment.add_animation(title_outro, duration=min(500_000, duration))
         draft.add_segment(segment, track)
+
+
+def opening_lead(configured_us: int, title_audio_us: int, title_lead_us: int,
+                 tail_us: int = TITLE_TAIL_US) -> int:
+    """How long the head holds before the first line of the copy.
+
+    The configured lead is a floor, not the answer. It is 0.8 s - enough for the
+    stinger to land alone, and about half of what a spoken title needs. Left at
+    0.8 s the copy would start talking over the title's own voice.
+    """
+    if title_audio_us <= 0:
+        return configured_us
+    return max(configured_us, title_lead_us + title_audio_us + tail_us)
 
 
 def plan_timeline(durations: list[int], pauses: list[bool], lead_us: int,
@@ -2068,6 +2123,30 @@ def main() -> int:
     populate_audio_durations(scenes)
     save_run_state(asset_root, draft_name, title, copy, scenes, characters, "audio_durations_ready", failures)
 
+    # The title gets its own voice clip. It is not one of the scenes: the copy
+    # is what the scenes narrate, and when --title is given the overlay says
+    # something the copy never does - so it was drawn on screen and never read.
+    # Cached like the scene clips, so --resume does not pay for it twice.
+    title_audio: Path | None = None
+    if cfg.speak_title and title.strip():
+        candidate = audio_dir / "title.mp3"
+        if not candidate.is_file() or candidate.stat().st_size == 0:
+            append_run_log(asset_root, "title_tts_started")
+            report_progress("Title voice", 0, 1)
+            try:
+                synthesize_tts(cfg, title.strip(), candidate)
+            except Exception as exc:
+                # A silent title is a worse video, not a broken one. The rest of
+                # the run is already paid for; do not throw it away over the
+                # opening line.
+                append_run_log(asset_root, "title_tts_failed", error=str(exc))
+                print(f"Title voice-over failed, continuing without it: {exc}")
+                candidate = None
+            else:
+                append_run_log(asset_root, "title_tts_completed")
+                report_progress("Title voice", 1, 1)
+        title_audio = candidate if candidate and candidate.is_file() else None
+
     pending_images = [(index, scene) for index, scene in enumerate(scenes, 1)
                       if not scene.image_path or not Path(scene.image_path).is_file()]
     if args.resume:
@@ -2118,7 +2197,8 @@ def main() -> int:
 
     report_progress("Draft", 0, 1)
     try:
-        draft_path = build_draft(cfg, scenes, draft_name, args.replace, title)
+        draft_path = build_draft(cfg, scenes, draft_name, args.replace, title,
+                                 title_audio)
     except Exception as exc:
         failure = {"stage": "draft", "error": str(exc)}
         failures.append(failure)
