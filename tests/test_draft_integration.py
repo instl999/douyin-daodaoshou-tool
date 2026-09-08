@@ -341,3 +341,91 @@ def test_unknown_style_preset_is_rejected(monkeypatch, workspace):
     monkeypatch.setenv("IMAGE_STYLE_PRESET", "nonexistent")
     with pytest.raises(RuntimeError, match="IMAGE_STYLE_PRESET"):
         acd.Config.load()
+
+
+# --------------------------------------------------------- the spoken title --
+# The title was drawn on screen and never read. That only shows when --title
+# says something the copy does not, which is the documented usage - so the
+# fixture below gives the title its own clip, exactly as a real run now does.
+
+# Longer than TITLE_SECONDS' 2.4s default once the 0.45s lead is added, so the
+# overlay genuinely has to be held. At 1.6s the voice finished inside the
+# default hold and the test passed whether the hold was extended or not - which
+# is a test that reports on nothing.
+TITLE_SECONDS = 3.0
+
+
+@pytest.fixture
+def spoken(workspace):
+    assets, _ = workspace
+    cfg = acd.Config.load()
+    voice = _wav(assets / "title.wav", TITLE_SECONDS)
+    path = acd.build_draft(cfg, _scenes(assets), "pytest_spoken", replace=False,
+                           title="男人不能为女人做的3件事", title_audio=voice)
+    content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
+    return cfg, content, {track["name"]: track for track in content["tracks"]}
+
+
+def test_the_lead_is_a_floor_not_the_answer():
+    """0.8s fits the stinger and about half a spoken title."""
+    lead, tail = round(0.45 * SECOND), acd.TITLE_TAIL_US
+    configured = round(0.8 * SECOND)
+    # A title short enough to fit keeps the configured lead...
+    assert acd.opening_lead(configured, round(0.1 * SECOND), lead, tail) == configured
+    # ...and one that does not, extends it by exactly what it needs.
+    spoken_us = round(1.6 * SECOND)
+    assert acd.opening_lead(configured, spoken_us, lead, tail) == lead + spoken_us + tail
+    # No title audio at all leaves the timeline exactly as it was.
+    assert acd.opening_lead(configured, 0, lead, tail) == configured
+
+
+def test_the_title_is_spoken_before_the_copy(spoken):
+    """The whole point: the copy must not talk over the title's own voice."""
+    cfg, _, tracks = spoken
+    voice = _sorted_segments(tracks["voiceover"])
+    title, first_line = voice[0], voice[1]
+    assert title["target_timerange"]["start"] == cfg.title_lead_us
+    title_end = title["target_timerange"]["start"] + title["target_timerange"]["duration"]
+    assert first_line["target_timerange"]["start"] >= title_end, (
+        "the first line of the copy starts before the title has finished")
+
+
+def test_the_title_waits_for_the_stinger(spoken):
+    """It speaks into the cue's decay, not over its impact."""
+    cfg, _, tracks = spoken
+    assert cfg.title_lead_us > 0
+    title = _sorted_segments(tracks["voiceover"])[0]
+    assert title["target_timerange"]["start"] == cfg.title_lead_us
+
+
+def test_the_title_stays_on_screen_while_it_is_read(spoken):
+    """A title that vanishes mid-sentence reads as a timing bug."""
+    _, _, tracks = spoken
+    overlay = _sorted_segments(tracks[acd.title_track_name(0)])[0]
+    voice = _sorted_segments(tracks["voiceover"])[0]
+    voice_end = voice["target_timerange"]["start"] + voice["target_timerange"]["duration"]
+    overlay_end = overlay["target_timerange"]["start"] + overlay["target_timerange"]["duration"]
+    assert overlay_end >= voice_end
+
+
+def test_the_bed_ducks_under_the_title_too(spoken):
+    """The title is speech; the music has to get out of its way like any other."""
+    cfg, _, tracks = spoken
+    keyframes = tracks["BGM"]["segments"][0]["common_keyframes"]
+    points = [(k["time_offset"], k["values"][0])
+              for group in keyframes for k in group["keyframe_list"]]
+    assert points, "the bed has no volume automation at all"
+    middle = cfg.title_lead_us + round(0.8 * SECOND)
+    at_title = min(points, key=lambda point: abs(point[0] - middle))[1]
+    assert at_title <= cfg.bgm_volume + 1e-6, (
+        f"bed sits at {at_title} during the title, above the ducked {cfg.bgm_volume}")
+
+
+def test_an_unspoken_title_leaves_the_timeline_alone(draft, spoken):
+    """Without title audio nothing moves - the old behaviour is intact."""
+    cfg, _, plain_tracks = draft
+    _, _, spoken_tracks = spoken
+    plain_first = _sorted_segments(plain_tracks[acd.NARRATION_SUBTITLE_TRACK])[0]
+    spoken_first = _sorted_segments(spoken_tracks[acd.NARRATION_SUBTITLE_TRACK])[0]
+    assert plain_first["target_timerange"]["start"] == cfg.opening_lead_us
+    assert spoken_first["target_timerange"]["start"] > cfg.opening_lead_us
