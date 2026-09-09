@@ -85,6 +85,14 @@ DEFAULT_TITLE_LEAD_SECONDS = 0.45
 # run together as one sentence.
 TITLE_TAIL_US = 250_000
 
+# The longest the head may hold before the copy starts. The lead grows to fit
+# the title's own voice, and nothing stopped that growing without limit: a
+# forty-character --title reads for eight seconds, so the video opened on
+# nearly nine seconds of title card. This is short-form video; the content has
+# to start. A title that will not fit inside this is not a title, it is a
+# sentence, and it keeps its type on screen but loses its voice-over.
+MAX_OPENING_LEAD_US = 4_000_000
+
 # Whole-video art direction. Nine presets; pick one with IMAGE_STYLE_PRESET.
 #
 # A preset is more than a prompt. Three other things have to move with it, or
@@ -1892,6 +1900,15 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
     # configured 0.8 s lead is enough for the stinger alone and about half of
     # what a spoken title needs.
     title_material = AudioMaterial(str(title_audio)) if title_audio else None
+    if title_material is not None and not title_voice_fits(
+            title_material.duration, cfg.title_lead_us):
+        # Too long to read before the copy has to start. The type stays; only
+        # the voice-over goes. Silently clamping instead would talk the copy
+        # over the tail of its own title.
+        print(f"Title voice-over skipped: reading it takes "
+              f"{title_material.duration / 1e6:.1f}s and the opening may not "
+              f"run past {MAX_OPENING_LEAD_US / 1e6:.1f}s. Use a shorter --title.")
+        title_material = None
     lead_us = opening_lead(cfg.opening_lead_us,
                            title_material.duration if title_material else 0,
                            cfg.title_lead_us)
@@ -2061,17 +2078,30 @@ def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], tota
         draft.add_segment(segment, track)
 
 
+def title_voice_fits(title_audio_us: int, title_lead_us: int,
+                     tail_us: int = TITLE_TAIL_US,
+                     cap_us: int = MAX_OPENING_LEAD_US) -> bool:
+    """Whether reading the title aloud leaves the copy starting in time."""
+    return title_lead_us + title_audio_us + tail_us <= cap_us
+
+
 def opening_lead(configured_us: int, title_audio_us: int, title_lead_us: int,
-                 tail_us: int = TITLE_TAIL_US) -> int:
+                 tail_us: int = TITLE_TAIL_US,
+                 cap_us: int = MAX_OPENING_LEAD_US) -> int:
     """How long the head holds before the first line of the copy.
 
     The configured lead is a floor, not the answer. It is 0.8 s - enough for the
     stinger to land alone, and about half of what a spoken title needs. Left at
     0.8 s the copy would start talking over the title's own voice.
+
+    It is not an unbounded ceiling either. Callers drop the voice-over rather
+    than let the head run past `cap_us`; this clamps as a second line of
+    defence so no arithmetic path can produce a nine-second opening.
     """
     if title_audio_us <= 0:
         return configured_us
-    return max(configured_us, title_lead_us + title_audio_us + tail_us)
+    return min(max(configured_us, title_lead_us + title_audio_us + tail_us),
+               max(configured_us, cap_us))
 
 
 def plan_timeline(durations: list[int], pauses: list[bool], lead_us: int,
