@@ -91,7 +91,8 @@ def draft(workspace):
     # The reference video's own title: long enough to break, so the fixture
     # exercises the stacked two-line layout rather than the trivial one.
     path = acd.build_draft(cfg, _scenes(assets), "pytest_draft", replace=False,
-                           title="男人不能为女人做的3件事")
+                           title="男人不能为女人做的3件事",
+                           opening_sound=acd.resolve_opening_sound(cfg, drafts))
     content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
     return cfg, content, {track["name"]: track for track in content["tracks"]}
 
@@ -361,7 +362,8 @@ def spoken(workspace):
     cfg = acd.Config.load()
     voice = _wav(assets / "title.wav", TITLE_SECONDS)
     path = acd.build_draft(cfg, _scenes(assets), "pytest_spoken", replace=False,
-                           title="男人不能为女人做的3件事", title_audio=voice)
+                           title="男人不能为女人做的3件事", title_audio=voice,
+                           opening_sound=acd.resolve_opening_sound(cfg, assets))
     content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
     return cfg, content, {track["name"]: track for track in content["tracks"]}
 

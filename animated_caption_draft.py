@@ -1104,8 +1104,15 @@ def generate_opening_sound(path: Path, seconds: float = 3.2, rate: int = 44100) 
         for index in range(begin, total):
             t = (index - begin) / rate
             hertz = frequency
-            if glide_to is not None and t < glide_for:
-                hertz = frequency + (glide_to - frequency) * (t / glide_for)
+            if glide_to is not None:
+                # Hold at the destination once the glide is over. Falling back
+                # to `frequency` snapped the pitch from 52 Hz back up to 96 at
+                # 64% amplitude - a click in the middle of the hit, and the
+                # opposite of the drop that makes it read as 咚.
+                if t >= glide_for:
+                    hertz = glide_to
+                elif glide_for > 0:
+                    hertz = frequency + (glide_to - frequency) * (t / glide_for)
             phase += 2.0 * math.pi * hertz / rate
             samples[index] += amplitude * math.exp(-t / decay) * math.sin(phase)
 
@@ -1202,14 +1209,24 @@ def title_already_narrated(title: str, scenes: list[Scene]) -> bool:
     return opening.startswith(wanted) or wanted.startswith(opening)
 
 
-def resolve_opening_sound(cfg: Config, workspace: Path) -> Path:
-    """The configured cue, or a synthesised one written into the run."""
+def resolve_opening_sound(cfg: Config, workspace: Path) -> Path | None:
+    """The configured cue, or a synthesised one written into the run.
+
+    None when neither is available. A missing stinger is a slightly worse
+    opening; it is not a reason to lose a run whose narration and images have
+    already been paid for, which is the same call the title's voice-over makes
+    a few lines further down.
+    """
     if cfg.opening_sound_path is not None:
         return cfg.opening_sound_path
     target = workspace / SYNTH_OPENING_NAME
-    if not target.is_file() or target.stat().st_size == 0:
-        generate_opening_sound(target)
-    return target
+    if target.is_file() and target.stat().st_size > 0:
+        return target
+    try:
+        return generate_opening_sound(target)
+    except OSError as exc:
+        print(f"Opening cue could not be written, continuing without it: {exc}")
+        return None
 
 
 def _require_asset(setting: str, default: str, suffixes: set[str]) -> Path:
@@ -1934,8 +1951,11 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
                          Timerange(cfg.title_lead_us, title_material.duration)),
             audio_track)
 
-    add_opening_sound(cfg, draft, opening_sfx_track, total_duration,
-                      opening_sound or resolve_opening_sound(cfg, cfg.draft_dir / draft_name))
+    # `opening_sound` of None means no cue, not "go and find one". Callers
+    # resolve it; resolving here as well made None ambiguous and needed a
+    # second flag to say which None was meant, which is a sentinel pretending
+    # to be an API.
+    add_opening_sound(cfg, draft, opening_sfx_track, total_duration, opening_sound)
     if watermark_track is not None and cfg.watermark_path:
         watermark = VideoSegment(
             str(cfg.watermark_path), Timerange(0, total_duration),
@@ -1959,9 +1979,11 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
 
 
 def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int,
-                      sound_path: Path) -> None:
+                      sound_path: Path | None) -> None:
     from pyJianYingDraft import AudioMaterial, AudioSegment, Timerange
 
+    if sound_path is None:
+        return
     material = AudioMaterial(str(sound_path))
     duration = min(material.duration, total_duration)
     if duration <= 0:
