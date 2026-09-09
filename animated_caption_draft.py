@@ -1196,6 +1196,34 @@ def generate_opening_sound(path: Path, seconds: float = 3.2, rate: int = 44100) 
     return path
 
 
+def _cjk_share(text: str) -> float:
+    """Fraction of the letters in `text` that are CJK."""
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return 0.0
+    return sum("一" <= c <= "鿿" for c in letters) / len(letters)
+
+
+def title_language_differs(title: str, scenes: list[Scene]) -> bool:
+    """True when the title is not in the language the scenes are narrated in.
+
+    The director translates: give it English copy and it returns Chinese
+    scenes. A --title passed alongside is used verbatim, so an English title
+    ends up read aloud by the Chinese voice configured for the narration. The
+    draft is not wrong, it just sounds wrong, and nothing else would say so.
+    """
+    if not scenes or not title.strip():
+        return False
+    spoken = "".join(scene.text or "" for scene in scenes)
+    # A title of digits or punctuation - "2026", "#3" - has no language to
+    # disagree with, and _cjk_share would score it 0.0 and call it Latin.
+    if not [c for c in title if c.isalpha()]:
+        return False
+    if not [c for c in spoken if c.isalpha()]:
+        return False
+    return abs(_cjk_share(title) - _cjk_share(spoken)) > 0.5
+
+
 def title_already_narrated(title: str, scenes: list[Scene]) -> bool:
     """True when the copy's own narration already opens with the title.
 
@@ -2411,6 +2439,11 @@ def main() -> int:
     opening_sound = resolve_opening_sound(cfg, asset_root)
     if cfg.opening_sound_path is None:
         append_run_log(asset_root, "opening_sound_synthesised", path=str(opening_sound))
+
+    if cfg.speak_title and title_language_differs(title, scenes):
+        print("Note: the title is not in the same language as the narration, "
+              "so it will be read by the narration's voice. Pass a --title in "
+              "the same language if that is not what you want.")
 
     title_audio: Path | None = None
     if cfg.speak_title and title.strip() and title_already_narrated(title, scenes):
