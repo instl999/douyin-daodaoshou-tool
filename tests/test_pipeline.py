@@ -796,3 +796,23 @@ def test_the_cue_holds_its_pitch_after_the_drop(tmp_path):
     assert landed > started * 4, (
         f"after the glide the cue sits at 96 Hz ({started:.5f}) more than at "
         f"52 Hz ({landed:.5f}) - the pitch snapped back instead of holding")
+
+
+def test_a_title_too_long_to_read_loses_its_voice_not_the_pacing():
+    """The lead grows to fit the title, and that growth needs a ceiling.
+
+    A forty-character --title reads for eight seconds, which opened the video
+    on nearly nine seconds of title card before the copy started. This is
+    short-form video. The type stays; the voice-over goes.
+    """
+    lead = round(0.45 * 1_000_000)
+    configured = round(0.8 * 1_000_000)
+
+    assert acd.title_voice_fits(round(2.4 * 1_000_000), lead)
+    assert not acd.title_voice_fits(round(8.0 * 1_000_000), lead)
+
+    # Callers drop the voice, so the head returns to its configured length...
+    assert acd.opening_lead(configured, 0, lead) == configured
+    # ...and even if one did not, the arithmetic cannot exceed the cap.
+    assert acd.opening_lead(configured, round(30.0 * 1_000_000), lead) \
+        <= acd.MAX_OPENING_LEAD_US
