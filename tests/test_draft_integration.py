@@ -475,3 +475,13 @@ def test_the_generated_cue_is_written_outside_the_repo(tmp_path, monkeypatch):
     cue = acd.resolve_opening_sound(cfg, run)
     assert cue.parent == run
     assert acd.ROOT not in cue.parents, "the generated cue must not land in the repo"
+
+
+def test_the_draft_knows_its_own_name_and_place(draft, workspace):
+    """pyJianYingDraft copies its meta template verbatim, leaving these empty."""
+    _, drafts = workspace
+    meta = json.loads((drafts / "pytest_draft" / "draft_meta_info.json")
+                      .read_text(encoding="utf-8-sig"))
+    assert meta["draft_name"] == "pytest_draft"
+    assert Path(meta["draft_fold_path"]) == drafts / "pytest_draft"
+    assert Path(meta["draft_root_path"]) == drafts

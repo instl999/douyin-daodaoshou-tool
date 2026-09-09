@@ -1977,7 +1977,34 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         add_bgm(cfg, draft, bgm_track, bgm_material, total_duration, speech)
 
     draft.save()
+    write_draft_meta(cfg.draft_dir / draft_name, draft_name)
     return cfg.draft_dir / draft_name
+
+
+def write_draft_meta(draft_path: Path, draft_name: str) -> None:
+    """Name the draft in its own metadata.
+
+    pyJianYingDraft's create_draft copies its meta template verbatim, so
+    draft_name, draft_fold_path and draft_root_path are left empty strings.
+    Jianying lists drafts by folder, which is why this has never stopped one
+    appearing - but a draft that does not know its own name or where it lives
+    is wrong in a way that costs nothing to fix, and the sibling tool that
+    writes the same format fills these in deliberately.
+    """
+    meta_path = draft_path / "draft_meta_info.json"
+    if not meta_path.is_file():
+        return
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+        meta["draft_name"] = draft_name
+        meta["draft_fold_path"] = str(draft_path)
+        meta["draft_root_path"] = str(draft_path.parent)
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+    except (ValueError, OSError) as exc:
+        # The draft itself is written and openable; its label is not worth
+        # failing a finished run over.
+        print(f"Could not label the draft metadata: {exc}")
 
 
 def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int,
