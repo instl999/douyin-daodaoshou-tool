@@ -95,7 +95,7 @@ assets/
 
 Point `.env` at relative or absolute paths. Leave BGM and watermark empty to skip them.
 
-**The opening sound effect is no longer required.** Without one it is synthesised: a low sine dropping a fifth, two inharmonic partials, and a lowpassed-noise tail for the room, with the envelope measured against a real cue. Standard library only, no third-party dependency, and no audio of unclear licensing committed to a public repo — which `assets/README.md` already told us not to do. Your own file still wins when present.
+**The opening cue ships, and is never synthesised.** `assets/opening_dong.mp3` is the 咚 you hear in the finished video, played exactly as supplied at unity gain. There is no fallback that builds a stand-in: this sound is what these videos are recognised by, and something that merely resembles it is worse than an error. Point `OPENING_SOUND_PATH` at your own file to change it; a path that does not exist fails loudly rather than being quietly replaced.
 
 ---
 

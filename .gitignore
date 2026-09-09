@@ -24,3 +24,6 @@ venv/
 # User-provided media (documentation stays tracked)
 assets/*
 !assets/README.md
+# the opening cue ships: it is the sound these videos are known by, and
+# nothing synthesises a stand-in for it
+!assets/opening_dong.mp3

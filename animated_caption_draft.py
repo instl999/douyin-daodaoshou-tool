@@ -903,7 +903,7 @@ class Config:
 
     # Jianying + assets
     draft_dir: Path
-    opening_sound_path: Path | None
+    opening_sound_path: Path
     opening_sound_volume: float
     opening_lead_us: int
     speak_title: bool
@@ -1010,10 +1010,11 @@ class Config:
             tts_concurrency=bounded_env_int("TTS_CONCURRENCY", 3, 1, MAX_IMAGE_CONCURRENCY),
 
             draft_dir=draft_dir,
-            # Optional, not required. It used to abort the run when missing,
-            # which made the one asset the repo is not allowed to ship the one
-            # asset it could not start without. A missing cue is synthesised.
-            opening_sound_path=_asset_if_present(
+            # Required. The cue is a specific sound these videos are known
+            # by; it ships with the repo, and nothing synthesises a stand-in
+            # for it, so a missing one is a broken install rather than a
+            # missing option.
+            opening_sound_path=_require_asset(
                 "OPENING_SOUND_PATH", DEFAULT_OPENING_SOUND_PATH, {".mp3", ".wav"}
             ),
             # Unity by default: the opening cue plays exactly as supplied. It
@@ -1080,122 +1081,6 @@ class Config:
         )
 
 
-SYNTH_OPENING_NAME = "opening_dong_synth.wav"
-
-
-def generate_opening_sound(path: Path, seconds: float = 3.2, rate: int = 44100) -> Path:
-    """Synthesise the opening 咚 from scratch. Standard library only.
-
-    The program used to refuse to run without an opening sound the user had to
-    find and drop into assets/ themselves, and assets/README.md says in the
-    same breath not to commit music of unclear licensing - so the one required
-    asset was also the one asset the repo could not ship. This closes that:
-    a fresh clone opens with a real stinger and owes nobody anything.
-
-    Built to the shape of the reference cue, measured: the impact peaks in its
-    first 0.25 s, is 10 dB down by 0.5 s, and rings out to about -50 dB over
-    five seconds. What makes it read as 咚 rather than as a kick drum is the
-    pitch drop across the first tenth of a second and the two inharmonic
-    partials over the fundamental - a drum is harmonic, a struck gong is not.
-
-    No numpy. The dependency list here is two packages, pinned, with a comment
-    explaining why; a sound effect does not get to add a third.
-    """
-    import array
-    import wave
-
-    total = int(seconds * rate)
-    samples = array.array("d", bytes(8 * total))
-
-    def add(frequency, amplitude, decay, start=0.0, glide_to=None, glide_for=0.0):
-        """One exponentially-decaying partial, optionally gliding in pitch."""
-        phase = 0.0
-        begin = int(start * rate)
-        for index in range(begin, total):
-            t = (index - begin) / rate
-            hertz = frequency
-            if glide_to is not None:
-                # Hold at the destination once the glide is over. Falling back
-                # to `frequency` snapped the pitch from 52 Hz back up to 96 at
-                # 64% amplitude - a click in the middle of the hit, and the
-                # opposite of the drop that makes it read as 咚.
-                if t >= glide_for:
-                    hertz = glide_to
-                elif glide_for > 0:
-                    hertz = frequency + (glide_to - frequency) * (t / glide_for)
-            phase += 2.0 * math.pi * hertz / rate
-            samples[index] += amplitude * math.exp(-t / decay) * math.sin(phase)
-
-    # Fundamental, dropping a fifth over the first 90 ms. This is the 咚.
-    #
-    # The decays are short. The first attempt used 0.6-2.1 s and measured 3 dB
-    # of fall across the first quarter-second where the reference cue falls 9;
-    # it read as a sustained tone rather than as an impact. An impact is a fast
-    # body decay over a quiet ring, not one long note.
-    add(96.0, 1.00, 0.20, glide_to=52.0, glide_for=0.09)
-    # Sub-octave for weight, and a low ring so the cue fades under the
-    # narration instead of stopping dead under it.
-    add(36.0, 0.50, 0.34)
-    add(52.0, 0.10, 0.85)
-    # Inharmonic partials: struck metal, not a drum skin.
-    add(52.0 * 2.41, 0.16, 0.15)
-    add(52.0 * 4.13, 0.09, 0.08)
-
-    # The beater, and the room it is struck in. Both are noise; both are
-    # deterministic, so two runs produce byte-identical files and the draft's
-    # material hash is stable.
-    #
-    # The room is not decoration. With the partials alone the cue was 18 dB
-    # below the reference by one second and silent by two - it stopped dead
-    # under the narration where the reference rings out. A struck object in a
-    # room decays fast and then keeps sounding quietly for seconds, and that
-    # second part is most of what makes a cue sound produced rather than
-    # generated. One-pole lowpassed white noise is a crude reverb and an
-    # entirely convincing one at 30 dB down.
-    seed = 0x2F6E2B1
-
-    def white():
-        nonlocal seed
-        seed = (1103515245 * seed + 12345) & 0x7FFFFFFF
-        return (seed / 0x3FFFFFFF) - 1.0
-
-    beater = int(0.014 * rate)
-    for index in range(min(beater, total)):
-        samples[index] += 0.30 * white() * math.exp(-index / rate / 0.004)
-
-    low = 0.0
-    for index in range(total):
-        low += 0.06 * (white() - low)          # one-pole lowpass, ~420 Hz
-        samples[index] += 0.90 * low * math.exp(-index / rate / 2.40)
-
-    # 0.90 and 2.40 s are not guesses: the quarter-second RMS envelope was
-    # measured against the reference cue and the pair swept until the two
-    # matched. Within 2-3 dB the whole way down -
-    #   synth  -16.8 -25.4 -30.9 -34.1 -35.4 ... -42.6
-    #   ref    -18.7 -27.9 -30.7 -30.8 -32.8 ... -41.9
-    # which is close enough to sit in the same video and not so close that it
-    # is a copy of a file this repo cannot license.
-
-    peak = max((abs(value) for value in samples), default=0.0) or 1.0
-    # -6 dBFS: a stinger with headroom. OPENING_SOUND_VOLUME scales it again.
-    gain = (10 ** (-6.0 / 20.0)) / peak
-    fade = int(0.05 * rate)
-    frames = array.array("h", bytes(2 * total))
-    for index, value in enumerate(samples):
-        level = value * gain
-        if index > total - fade:                 # no click at the end
-            level *= (total - index) / fade
-        frames[index] = max(-32768, min(32767, int(level * 32767)))
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(rate)
-        handle.writeframes(frames.tobytes())
-    return path
-
-
 def _cjk_share(text: str) -> float:
     """Fraction of the letters in `text` that are CJK."""
     letters = [c for c in text if c.isalpha()]
@@ -1245,26 +1130,6 @@ def title_already_narrated(title: str, scenes: list[Scene]) -> bool:
         return False
     opening = strip.sub("", scenes[0].text or "")
     return opening.startswith(wanted) or wanted.startswith(opening)
-
-
-def resolve_opening_sound(cfg: Config, workspace: Path) -> Path | None:
-    """The configured cue, or a synthesised one written into the run.
-
-    None when neither is available. A missing stinger is a slightly worse
-    opening; it is not a reason to lose a run whose narration and images have
-    already been paid for, which is the same call the title's voice-over makes
-    a few lines further down.
-    """
-    if cfg.opening_sound_path is not None:
-        return cfg.opening_sound_path
-    target = workspace / SYNTH_OPENING_NAME
-    if target.is_file() and target.stat().st_size > 0:
-        return target
-    try:
-        return generate_opening_sound(target)
-    except OSError as exc:
-        print(f"Opening cue could not be written, continuing without it: {exc}")
-        return None
 
 
 def _require_asset(setting: str, default: str, suffixes: set[str]) -> Path:
@@ -1324,9 +1189,7 @@ def describe_configuration(cfg: Config) -> None:
     print(f"Title:      {cfg.title_font} at size {cfg.title_size:g} "
           f"(~{round(cfg.title_size * cfg.subtitle_em_px)} px per character, {limit} per line), "
           f"colourway {cfg.title_style}, {cfg.title_us / 1e6:.1f}s")
-    cue = (str(cfg.opening_sound_path) if cfg.opening_sound_path
-           else f"synthesised ({SYNTH_OPENING_NAME}, generated per run)")
-    print(f"Opening:    {cue} at {cfg.opening_sound_volume:.2f}, "
+    print(f"Opening:    {cfg.opening_sound_path} at {cfg.opening_sound_volume:.2f}, "
           f"copy starts at {cfg.opening_lead_us / 1e6:.2f}s or later")
     print(f"Title voice: {'on' if cfg.speak_title else 'off'}"
           + (f", {cfg.title_lead_us / 1e6:.2f}s after the cue" if cfg.speak_title else ""))
@@ -1998,11 +1861,12 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
                          Timerange(cfg.title_lead_us, title_material.duration)),
             audio_track)
 
-    # `opening_sound` of None means no cue, not "go and find one". Callers
-    # resolve it; resolving here as well made None ambiguous and needed a
-    # second flag to say which None was meant, which is a sentinel pretending
-    # to be an API.
-    add_opening_sound(cfg, draft, opening_sfx_track, total_duration, opening_sound)
+    # Defaulting to the configured cue rather than to nothing. The cue is
+    # required and always resolvable from cfg, so there is no "no cue" case to
+    # express - and a caller that omits the argument previously got
+    # AudioMaterial("None") and a broken draft.
+    add_opening_sound(cfg, draft, opening_sfx_track, total_duration,
+                      opening_sound or cfg.opening_sound_path)
     if watermark_track is not None and cfg.watermark_path:
         watermark = VideoSegment(
             str(cfg.watermark_path), Timerange(0, total_duration),
@@ -2053,11 +1917,9 @@ def write_draft_meta(draft_path: Path, draft_name: str) -> None:
 
 
 def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int,
-                      sound_path: Path | None) -> None:
+                      sound_path: Path) -> None:
     from pyJianYingDraft import AudioMaterial, AudioSegment, Timerange
 
-    if sound_path is None:
-        return
     material = AudioMaterial(str(sound_path))
     duration = min(material.duration, total_duration)
     if duration <= 0:
@@ -2434,12 +2296,6 @@ def main() -> int:
     # is what the scenes narrate, and when --title is given the overlay says
     # something the copy never does - so it was drawn on screen and never read.
     # Cached like the scene clips, so --resume does not pay for it twice.
-    # A missing cue is synthesised into the run's own folder rather than
-    # written back into assets/, which is the user's directory and gitignored.
-    opening_sound = resolve_opening_sound(cfg, asset_root)
-    if cfg.opening_sound_path is None:
-        append_run_log(asset_root, "opening_sound_synthesised", path=str(opening_sound))
-
     if cfg.speak_title and title_language_differs(title, scenes):
         print("Note: the title is not in the same language as the narration, "
               "so it will be read by the narration's voice. Pass a --title in "
@@ -2524,7 +2380,7 @@ def main() -> int:
     report_progress("Draft", 0, 1)
     try:
         draft_path = build_draft(cfg, scenes, draft_name, args.replace, title,
-                                 title_audio, opening_sound)
+                                 title_audio, cfg.opening_sound_path)
     except Exception as exc:
         failure = {"stage": "draft", "error": str(exc)}
         failures.append(failure)

@@ -8,7 +8,7 @@ Suggested layout / 建议结构：
 
 ```text
 assets/
-  opening_dong.mp3       # optional / 可选：开场音效（缺失时自动合成 / synthesised if absent）
+  opening_dong.mp3       # shipped / 随仓库提供：开场音效（必需，不自动合成）
   background_music.mp3   # optional / 可选：背景音乐
   watermark.png          # optional / 可选：水印
 ```
