@@ -744,3 +744,55 @@ def test_the_comparison_ignores_reflowed_whitespace():
 
 def test_no_scenes_means_nothing_to_collide_with():
     assert not acd.title_already_narrated("任何标题", [])
+
+
+def test_an_unwritable_cue_does_not_lose_the_run(tmp_path, monkeypatch):
+    """A missing stinger is a worse opening, not a reason to lose a build.
+
+    By the time the draft is assembled the narration and the images are paid
+    for. The title's voice-over already makes this call; the cue now makes the
+    same one.
+    """
+    monkeypatch.delenv("OPENING_SOUND_PATH", raising=False)
+    monkeypatch.setattr(acd, "DEFAULT_OPENING_SOUND_PATH", "assets/__absent__.mp3")
+    monkeypatch.setenv("ARK_API_KEY", "k")
+    monkeypatch.setenv("ARK_TTS_VOICE_TYPE", "v")
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", str(tmp_path))
+    cfg = acd.Config.load()
+
+    def refuse(*_args, **_kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(acd, "generate_opening_sound", refuse)
+    assert acd.resolve_opening_sound(cfg, tmp_path / "run") is None
+
+
+def test_the_cue_holds_its_pitch_after_the_drop(tmp_path):
+    """The 咚 is a drop to a low note, and it has to stay there.
+
+    The glide originally fell back to its START frequency once the glide
+    window closed, snapping 52 Hz up to 96 at 64% amplitude - a click in the
+    middle of the hit, and the opposite of the drop the sound is named for.
+    Measured by correlating against both frequencies after the glide.
+    """
+    import array
+    import cmath
+    import math
+    import wave
+
+    with wave.open(str(acd.generate_opening_sound(tmp_path / "cue.wav")), "rb") as handle:
+        rate = handle.getframerate()
+        frames = array.array("h")
+        frames.frombytes(handle.readframes(handle.getnframes()))
+
+    window = [v / 32768 for v in frames[int(0.12 * rate):int(0.28 * rate)]]
+
+    def energy(hertz):
+        total = sum(v * cmath.exp(-2j * math.pi * hertz * i / rate)
+                    for i, v in enumerate(window))
+        return abs(total) / max(1, len(window))
+
+    landed, started = energy(52.0), energy(96.0)
+    assert landed > started * 4, (
+        f"after the glide the cue sits at 96 Hz ({started:.5f}) more than at "
+        f"52 Hz ({landed:.5f}) - the pitch snapped back instead of holding")
