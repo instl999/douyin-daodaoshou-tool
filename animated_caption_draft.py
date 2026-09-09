@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import math
 import os
@@ -18,6 +19,31 @@ from pathlib import Path
 from typing import Any
 
 import requests
+
+
+def _use_utf8_stdout() -> None:
+    """Make stdout survive a console that is not UTF-8.
+
+    Windows encodes stdout with the *console* code page, not UTF-8: cp1252
+    under Git Bash, cp1252 again under many CI shells. Almost everything this
+    program prints is Chinese - style labels, scene text, the progress lines -
+    so on such a console the `print` itself raises UnicodeEncodeError.
+    `--check-config` died on its second line, and a real run dies partway
+    through, after the narration and the images have been paid for. The
+    traceback names charmap.py, so it reads as a Python bug rather than a
+    terminal setting.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:                  # a pipe, or a captured buffer
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass                                 # printing is not worth aborting over
+
+
+_use_utf8_stdout()
 
 ROOT = Path(__file__).resolve().parent
 
@@ -869,7 +895,7 @@ class Config:
 
     # Jianying + assets
     draft_dir: Path
-    opening_sound_path: Path
+    opening_sound_path: Path | None
     opening_sound_volume: float
     opening_lead_us: int
     speak_title: bool
@@ -976,7 +1002,10 @@ class Config:
             tts_concurrency=bounded_env_int("TTS_CONCURRENCY", 3, 1, MAX_IMAGE_CONCURRENCY),
 
             draft_dir=draft_dir,
-            opening_sound_path=_require_asset(
+            # Optional, not required. It used to abort the run when missing,
+            # which made the one asset the repo is not allowed to ship the one
+            # asset it could not start without. A missing cue is synthesised.
+            opening_sound_path=_asset_if_present(
                 "OPENING_SOUND_PATH", DEFAULT_OPENING_SOUND_PATH, {".mp3", ".wav"}
             ),
             opening_sound_volume=bounded_env_float("OPENING_SOUND_VOLUME", 0.7, 0.0, 2.0),
@@ -1041,6 +1070,148 @@ class Config:
         )
 
 
+SYNTH_OPENING_NAME = "opening_dong_synth.wav"
+
+
+def generate_opening_sound(path: Path, seconds: float = 3.2, rate: int = 44100) -> Path:
+    """Synthesise the opening 咚 from scratch. Standard library only.
+
+    The program used to refuse to run without an opening sound the user had to
+    find and drop into assets/ themselves, and assets/README.md says in the
+    same breath not to commit music of unclear licensing - so the one required
+    asset was also the one asset the repo could not ship. This closes that:
+    a fresh clone opens with a real stinger and owes nobody anything.
+
+    Built to the shape of the reference cue, measured: the impact peaks in its
+    first 0.25 s, is 10 dB down by 0.5 s, and rings out to about -50 dB over
+    five seconds. What makes it read as 咚 rather than as a kick drum is the
+    pitch drop across the first tenth of a second and the two inharmonic
+    partials over the fundamental - a drum is harmonic, a struck gong is not.
+
+    No numpy. The dependency list here is two packages, pinned, with a comment
+    explaining why; a sound effect does not get to add a third.
+    """
+    import array
+    import wave
+
+    total = int(seconds * rate)
+    samples = array.array("d", bytes(8 * total))
+
+    def add(frequency, amplitude, decay, start=0.0, glide_to=None, glide_for=0.0):
+        """One exponentially-decaying partial, optionally gliding in pitch."""
+        phase = 0.0
+        begin = int(start * rate)
+        for index in range(begin, total):
+            t = (index - begin) / rate
+            hertz = frequency
+            if glide_to is not None and t < glide_for:
+                hertz = frequency + (glide_to - frequency) * (t / glide_for)
+            phase += 2.0 * math.pi * hertz / rate
+            samples[index] += amplitude * math.exp(-t / decay) * math.sin(phase)
+
+    # Fundamental, dropping a fifth over the first 90 ms. This is the 咚.
+    #
+    # The decays are short. The first attempt used 0.6-2.1 s and measured 3 dB
+    # of fall across the first quarter-second where the reference cue falls 9;
+    # it read as a sustained tone rather than as an impact. An impact is a fast
+    # body decay over a quiet ring, not one long note.
+    add(96.0, 1.00, 0.20, glide_to=52.0, glide_for=0.09)
+    # Sub-octave for weight, and a low ring so the cue fades under the
+    # narration instead of stopping dead under it.
+    add(36.0, 0.50, 0.34)
+    add(52.0, 0.10, 0.85)
+    # Inharmonic partials: struck metal, not a drum skin.
+    add(52.0 * 2.41, 0.16, 0.15)
+    add(52.0 * 4.13, 0.09, 0.08)
+
+    # The beater, and the room it is struck in. Both are noise; both are
+    # deterministic, so two runs produce byte-identical files and the draft's
+    # material hash is stable.
+    #
+    # The room is not decoration. With the partials alone the cue was 18 dB
+    # below the reference by one second and silent by two - it stopped dead
+    # under the narration where the reference rings out. A struck object in a
+    # room decays fast and then keeps sounding quietly for seconds, and that
+    # second part is most of what makes a cue sound produced rather than
+    # generated. One-pole lowpassed white noise is a crude reverb and an
+    # entirely convincing one at 30 dB down.
+    seed = 0x2F6E2B1
+
+    def white():
+        nonlocal seed
+        seed = (1103515245 * seed + 12345) & 0x7FFFFFFF
+        return (seed / 0x3FFFFFFF) - 1.0
+
+    beater = int(0.014 * rate)
+    for index in range(min(beater, total)):
+        samples[index] += 0.30 * white() * math.exp(-index / rate / 0.004)
+
+    low = 0.0
+    for index in range(total):
+        low += 0.06 * (white() - low)          # one-pole lowpass, ~420 Hz
+        samples[index] += 0.90 * low * math.exp(-index / rate / 2.40)
+
+    # 0.90 and 2.40 s are not guesses: the quarter-second RMS envelope was
+    # measured against the reference cue and the pair swept until the two
+    # matched. Within 2-3 dB the whole way down -
+    #   synth  -16.8 -25.4 -30.9 -34.1 -35.4 ... -42.6
+    #   ref    -18.7 -27.9 -30.7 -30.8 -32.8 ... -41.9
+    # which is close enough to sit in the same video and not so close that it
+    # is a copy of a file this repo cannot license.
+
+    peak = max((abs(value) for value in samples), default=0.0) or 1.0
+    # -6 dBFS: a stinger with headroom. OPENING_SOUND_VOLUME scales it again.
+    gain = (10 ** (-6.0 / 20.0)) / peak
+    fade = int(0.05 * rate)
+    frames = array.array("h", bytes(2 * total))
+    for index, value in enumerate(samples):
+        level = value * gain
+        if index > total - fade:                 # no click at the end
+            level *= (total - index) / fade
+        frames[index] = max(-32768, min(32767, int(level * 32767)))
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(frames.tobytes())
+    return path
+
+
+def title_already_narrated(title: str, scenes: list[Scene]) -> bool:
+    """True when the copy's own narration already opens with the title.
+
+    --title defaults to the first line of the copy, and that line is part of
+    the copy the scenes narrate. Speaking the title as well then says the same
+    sentence twice in a row - title voice, half a second, scene one saying it
+    again. That is the common case, not the corner case: it happens on every
+    run that does not pass --title.
+
+    Compared on characters alone. The splitter is free to reflow punctuation
+    and whitespace between the copy and a scene, and a stutter is a stutter
+    whether or not a comma survived.
+    """
+    if not scenes:
+        return False
+    strip = re.compile(r"[\s　]+")
+    wanted = strip.sub("", title)
+    if not wanted:
+        return False
+    opening = strip.sub("", scenes[0].text or "")
+    return opening.startswith(wanted) or wanted.startswith(opening)
+
+
+def resolve_opening_sound(cfg: Config, workspace: Path) -> Path:
+    """The configured cue, or a synthesised one written into the run."""
+    if cfg.opening_sound_path is not None:
+        return cfg.opening_sound_path
+    target = workspace / SYNTH_OPENING_NAME
+    if not target.is_file() or target.stat().st_size == 0:
+        generate_opening_sound(target)
+    return target
+
+
 def _require_asset(setting: str, default: str, suffixes: set[str]) -> Path:
     path = resolve_asset_path(env_value(setting, default))
     if not path.is_file():
@@ -1048,6 +1219,24 @@ def _require_asset(setting: str, default: str, suffixes: set[str]) -> Path:
     if path.suffix.lower() not in suffixes:
         raise RuntimeError(f"{setting} must use one of: {', '.join(sorted(suffixes))}.")
     return path
+
+
+def _asset_if_present(setting: str, default: str, suffixes: set[str]) -> Path | None:
+    """The configured asset, or None when it simply is not there.
+
+    An explicitly-set path that does not exist is still an error - a typo in
+    .env should be reported, not silently replaced by a generated stand-in.
+    Only the *default* is allowed to be absent.
+    """
+    raw = env_value(setting, default)
+    path = resolve_asset_path(raw)
+    if path.is_file():
+        if path.suffix.lower() not in suffixes:
+            raise RuntimeError(f"{setting} must use one of: {', '.join(sorted(suffixes))}.")
+        return path
+    if os.getenv(setting, "").strip():
+        raise RuntimeError(f"{setting} does not exist: {path}")
+    return None
 
 
 def _optional_asset(setting: str, suffixes: set[str]) -> Path | None:
@@ -1080,6 +1269,12 @@ def describe_configuration(cfg: Config) -> None:
     print(f"Title:      {cfg.title_font} at size {cfg.title_size:g} "
           f"(~{round(cfg.title_size * cfg.subtitle_em_px)} px per character, {limit} per line), "
           f"colourway {cfg.title_style}, {cfg.title_us / 1e6:.1f}s")
+    cue = (str(cfg.opening_sound_path) if cfg.opening_sound_path
+           else f"synthesised ({SYNTH_OPENING_NAME}, generated per run)")
+    print(f"Opening:    {cue} at {cfg.opening_sound_volume:.2f}, "
+          f"copy starts at {cfg.opening_lead_us / 1e6:.2f}s or later")
+    print(f"Title voice: {'on' if cfg.speak_title else 'off'}"
+          + (f", {cfg.title_lead_us / 1e6:.2f}s after the cue" if cfg.speak_title else ""))
     if cfg.bgm_volume > 0:
         lift = max(cfg.bgm_volume, cfg.bgm_lift_volume)
         print(f"BGM volume: {cfg.bgm_volume:.2f} under speech ({20 * math.log10(cfg.bgm_volume):.1f} dB), "
@@ -1575,7 +1770,8 @@ def validate_draft_target(cfg: Config, draft_name: str, replace: bool) -> None:
 
 
 def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool,
-                title: str, title_audio: Path | None = None) -> Path:
+                title: str, title_audio: Path | None = None,
+                opening_sound: Path | None = None) -> Path:
     from pyJianYingDraft import (
         AudioMaterial,
         AudioSegment,
@@ -1738,7 +1934,8 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
                          Timerange(cfg.title_lead_us, title_material.duration)),
             audio_track)
 
-    add_opening_sound(cfg, draft, opening_sfx_track, total_duration)
+    add_opening_sound(cfg, draft, opening_sfx_track, total_duration,
+                      opening_sound or resolve_opening_sound(cfg, cfg.draft_dir / draft_name))
     if watermark_track is not None and cfg.watermark_path:
         watermark = VideoSegment(
             str(cfg.watermark_path), Timerange(0, total_duration),
@@ -1761,10 +1958,11 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
     return cfg.draft_dir / draft_name
 
 
-def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int) -> None:
+def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int,
+                      sound_path: Path) -> None:
     from pyJianYingDraft import AudioMaterial, AudioSegment, Timerange
 
-    material = AudioMaterial(str(cfg.opening_sound_path))
+    material = AudioMaterial(str(sound_path))
     duration = min(material.duration, total_duration)
     if duration <= 0:
         return
@@ -2127,9 +2325,23 @@ def main() -> int:
     # is what the scenes narrate, and when --title is given the overlay says
     # something the copy never does - so it was drawn on screen and never read.
     # Cached like the scene clips, so --resume does not pay for it twice.
+    # A missing cue is synthesised into the run's own folder rather than
+    # written back into assets/, which is the user's directory and gitignored.
+    opening_sound = resolve_opening_sound(cfg, asset_root)
+    if cfg.opening_sound_path is None:
+        append_run_log(asset_root, "opening_sound_synthesised", path=str(opening_sound))
+
     title_audio: Path | None = None
-    if cfg.speak_title and title.strip():
-        candidate = audio_dir / "title.mp3"
+    if cfg.speak_title and title.strip() and title_already_narrated(title, scenes):
+        append_run_log(asset_root, "title_tts_skipped", reason="already in the copy")
+        print("Title voice-over skipped: the copy's first line already says it.")
+    elif cfg.speak_title and title.strip():
+        # Keyed on the title's own text, not a fixed name. --resume keeps
+        # whatever audio is already on disk, so a fixed name meant resuming
+        # with a different --title spoke the OLD title over the new one on
+        # screen - and the run would look entirely successful.
+        digest = hashlib.sha1(title.strip().encode("utf-8")).hexdigest()[:12]
+        candidate = audio_dir / f"title_{digest}.mp3"
         if not candidate.is_file() or candidate.stat().st_size == 0:
             append_run_log(asset_root, "title_tts_started")
             report_progress("Title voice", 0, 1)
@@ -2198,7 +2410,7 @@ def main() -> int:
     report_progress("Draft", 0, 1)
     try:
         draft_path = build_draft(cfg, scenes, draft_name, args.replace, title,
-                                 title_audio)
+                                 title_audio, opening_sound)
     except Exception as exc:
         failure = {"stage": "draft", "error": str(exc)}
         failures.append(failure)

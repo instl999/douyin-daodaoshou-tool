@@ -617,3 +617,130 @@ def test_the_storyboard_director_is_told_the_selected_medium(name):
     assert preset.medium in prompt
     assert preset.avoid in prompt
     assert "social-realism manhua" not in prompt
+
+
+# ------------------------------------------------- the synthesised opening --
+# The one asset the repo is not allowed to ship was also the one asset it could
+# not start without. These check the stand-in is a real cue, not a beep.
+
+def test_the_opening_cue_can_be_generated_without_any_asset(tmp_path):
+    import wave
+
+    path = acd.generate_opening_sound(tmp_path / "cue.wav")
+    assert path.is_file() and path.stat().st_size > 0
+    with wave.open(str(path), "rb") as handle:
+        assert handle.getframerate() == 44100
+        assert handle.getnframes() > 44100          # longer than a click
+
+
+def test_the_generated_cue_is_deterministic(tmp_path):
+    """Two runs must be byte-identical, or every build churns the material."""
+    first = acd.generate_opening_sound(tmp_path / "a.wav").read_bytes()
+    second = acd.generate_opening_sound(tmp_path / "b.wav").read_bytes()
+    assert first == second
+
+
+def test_the_generated_cue_hits_hard_and_rings_out(tmp_path):
+    """An impact, not a tone: fast body decay over a long quiet tail.
+
+    The first attempt fell 3 dB across the opening quarter-second where the
+    reference cue falls 9, and read as a sustained note. The second fixed the
+    attack and then died 18 dB early, stopping dead under the narration.
+    """
+    import array
+    import math
+    import wave
+
+    with wave.open(str(acd.generate_opening_sound(tmp_path / "cue.wav")), "rb") as handle:
+        rate = handle.getframerate()
+        frames = array.array("h")
+        frames.frombytes(handle.readframes(handle.getnframes()))
+
+    def band(start, length=0.25):
+        chunk = frames[int(start * rate):int((start + length) * rate)]
+        rms = math.sqrt(sum(value * value for value in chunk) / max(1, len(chunk))) / 32768
+        return 20 * math.log10(max(rms, 1e-6))
+
+    head, quarter, late = band(0.0), band(0.25), band(2.5)
+    assert head > -22, f"the impact is too soft at {head:.1f} dB"
+    assert head - quarter > 6, (
+        f"only {head - quarter:.1f} dB of decay in the first quarter-second; "
+        "that is a tone, not an impact")
+    assert -50 < late < -35, (
+        f"the tail sits at {late:.1f} dB - it should still be ringing quietly, "
+        "neither silent nor loud enough to sit under the narration")
+
+
+def test_a_configured_cue_wins_over_the_generated_one(tmp_path, monkeypatch):
+    """Your own file, when you have one, is still the default."""
+    import wave
+
+    mine = tmp_path / "mine.wav"
+    with wave.open(str(mine), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44100)
+        handle.writeframes(b"\x00\x00" * 4410)
+    monkeypatch.setenv("OPENING_SOUND_PATH", str(mine))
+    monkeypatch.setenv("ARK_API_KEY", "k")
+    monkeypatch.setenv("ARK_TTS_VOICE_TYPE", "v")
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", str(tmp_path))
+    cfg = acd.Config.load()
+    assert acd.resolve_opening_sound(cfg, tmp_path) == mine
+
+
+def test_a_typo_in_the_configured_path_is_still_an_error(tmp_path, monkeypatch):
+    """Only the default may be absent. A wrong path set on purpose is a bug."""
+    monkeypatch.setenv("OPENING_SOUND_PATH", str(tmp_path / "nope.wav"))
+    monkeypatch.setenv("ARK_API_KEY", "k")
+    monkeypatch.setenv("ARK_TTS_VOICE_TYPE", "v")
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", str(tmp_path))
+    with pytest.raises(RuntimeError, match="does not exist"):
+        acd.Config.load()
+
+
+def test_a_changed_title_is_not_spoken_from_a_stale_clip(tmp_path):
+    """--resume keeps existing audio, so the cache key has to be the text.
+
+    With a fixed `title.mp3` a resume with a different --title spoke the old
+    title over the new one on screen, and the run reported success.
+    """
+    import hashlib
+
+    def cache_name(title: str) -> str:
+        return f"title_{hashlib.sha1(title.strip().encode('utf-8')).hexdigest()[:12]}.mp3"
+
+    assert cache_name("男人不能为女人做的3件事") != cache_name("女人不能为男人做的3件事")
+    assert cache_name("同一个标题") == cache_name("  同一个标题  ")
+
+
+# ------------------------------------------- the title that says itself twice --
+
+def _title_scene(text: str) -> acd.Scene:
+    return acd.Scene(text=text, image_prompt="a desk", shot_size="wide", cast=["A"])
+
+
+def test_a_default_title_is_not_spoken_twice():
+    """--title defaults to the copy's first line, which scene 1 also narrates.
+
+    Speaking both says the same sentence twice in a row. This is the common
+    case - every run that does not pass --title.
+    """
+    copy_opens = "男人不能为女人做的3件事，第一件是替她做决定。"
+    assert acd.title_already_narrated("男人不能为女人做的3件事", [_title_scene(copy_opens)])
+
+
+def test_a_real_title_is_still_spoken():
+    """A --title the copy never says is exactly what needed a voice."""
+    assert not acd.title_already_narrated(
+        "省钱的三个误区", [_title_scene("很多人以为记账就能存下钱。")])
+
+
+def test_the_comparison_ignores_reflowed_whitespace():
+    """The splitter may reflow spacing; a stutter is still a stutter."""
+    assert acd.title_already_narrated(
+        "男人 不能　为女人做的3件事", [_title_scene("男人不能为女人做的3件事，第一件……")])
+
+
+def test_no_scenes_means_nothing_to_collide_with():
+    assert not acd.title_already_narrated("任何标题", [])

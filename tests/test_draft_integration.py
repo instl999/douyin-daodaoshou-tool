@@ -429,3 +429,47 @@ def test_an_unspoken_title_leaves_the_timeline_alone(draft, spoken):
     spoken_first = _sorted_segments(spoken_tracks[acd.NARRATION_SUBTITLE_TRACK])[0]
     assert plain_first["target_timerange"]["start"] == cfg.opening_lead_us
     assert spoken_first["target_timerange"]["start"] > cfg.opening_lead_us
+
+
+# --------------------------------------------- a clone with no audio at all --
+
+@pytest.fixture
+def bare(workspace, monkeypatch, tmp_path):
+    """No opening sound configured anywhere - the fresh-clone case."""
+    assets, _ = workspace
+    monkeypatch.delenv("OPENING_SOUND_PATH", raising=False)
+    # The DEFAULT is pointed at nothing, not just the env var unset. A developer
+    # who keeps their own assets/opening_dong.mp3 would otherwise resolve it and
+    # this fixture would quietly test the opposite of what it claims - passing
+    # on a fresh clone, failing on the machine of whoever wrote it.
+    monkeypatch.setattr(acd, "DEFAULT_OPENING_SOUND_PATH", "assets/__absent__.mp3")
+    cfg = acd.Config.load()
+    assert cfg.opening_sound_path is None, "the fixture is not testing what it claims"
+    cue = acd.resolve_opening_sound(cfg, tmp_path / "run")
+    path = acd.build_draft(cfg, _scenes(assets), "pytest_bare", replace=False,
+                           title="男人不能为女人做的3件事", opening_sound=cue)
+    content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
+    return cfg, content, {track["name"]: track for track in content["tracks"]}
+
+
+def test_a_clone_with_no_sound_effect_still_builds(bare):
+    """The one asset the repo may not ship was the one it could not start without."""
+    _, _, tracks = bare
+    segments = tracks["opening_sfx"]["segments"]
+    assert len(segments) == 1
+    assert segments[0]["target_timerange"]["start"] == 0
+    assert segments[0]["target_timerange"]["duration"] > 500_000
+
+
+def test_the_generated_cue_is_written_outside_the_repo(tmp_path, monkeypatch):
+    """It goes in the run's own folder, never back into the user's assets/."""
+    monkeypatch.delenv("OPENING_SOUND_PATH", raising=False)
+    monkeypatch.setattr(acd, "DEFAULT_OPENING_SOUND_PATH", "assets/__absent__.mp3")
+    monkeypatch.setenv("ARK_API_KEY", "k")
+    monkeypatch.setenv("ARK_TTS_VOICE_TYPE", "v")
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", str(tmp_path))
+    cfg = acd.Config.load()
+    run = tmp_path / "output" / "a_run"
+    cue = acd.resolve_opening_sound(cfg, run)
+    assert cue.parent == run
+    assert acd.ROOT not in cue.parents, "the generated cue must not land in the repo"
