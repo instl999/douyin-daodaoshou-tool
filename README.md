@@ -21,7 +21,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-在 `.env` 里填三样东西：`ARK_API_KEY`、`ARK_TTS_VOICE_TYPE`、`JIAN_YING_DRAFT_DIR`，再往 `assets/` 放一个开场音效。然后：
+在 `.env` 里填三样东西：`ARK_API_KEY`、`ARK_TTS_VOICE_TYPE`、`JIAN_YING_DRAFT_DIR`。然后：
 
 ```powershell
 python animated_caption_draft.py --check-config
@@ -86,12 +86,14 @@ python animated_caption_draft.py --draft-name my_story --title "示例标题" --
 
 ```text
 assets/
-  opening_dong.mp3       # 必需：开场音效
+  opening_dong.mp3       # 可选：开场音效（不放就自动合成一个）
   background_music.mp3   # 可选：BGM
   watermark.png          # 可选：水印
 ```
 
-在 `.env` 里填相对路径或完整路径。BGM 和水印留空即可跳过；开场音效目前是必需的。
+在 `.env` 里填相对路径或完整路径。BGM 和水印留空即可跳过。
+
+**开场音效不再是必需品。** 找不到就现场合成一个：低频正弦快速下滑加两个非谐分音，再叠一层低通白噪声当混响尾巴，包络是照着参考音效逐段量出来的。纯标准库，不引第三方依赖，也不往仓库里塞授权不明的音频——`assets/README.md` 本来就写着不要这么干。自己放了文件就还用自己的。
 
 ---
 
@@ -184,6 +186,10 @@ assets/
 压在标题自己的配音上。标题字幕也会跟着一起停留到念完为止。
 
 标题不另外做字幕：画面正中央那块大字就是它的字幕。
+
+**不给 `--title` 时标题不会被念第二遍。** 默认标题就是文案第一行，而第一行本来就在正文里、
+会被当成第一句念出来；再念一遍标题就是同一句话连说两次。所以只有当标题是正文里没有的句子
+（也就是你真的传了 `--title`）时才会单独配音，时间轴也才会因此加长。
 
 `SPEAK_TITLE=0` 可以关掉，时间轴会完全回到以前的样子。
 

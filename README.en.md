@@ -22,7 +22,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Fill in three things in `.env` — `ARK_API_KEY`, `ARK_TTS_VOICE_TYPE`, `JIAN_YING_DRAFT_DIR` — and drop an opening sound effect into `assets/`. Then:
+Fill in three things in `.env` — `ARK_API_KEY`, `ARK_TTS_VOICE_TYPE`, `JIAN_YING_DRAFT_DIR`. Then:
 
 ```powershell
 python animated_caption_draft.py --check-config
@@ -88,12 +88,14 @@ The repository ships no personal or potentially licensed media. Add your own und
 
 ```text
 assets/
-  opening_dong.mp3       # required: opening sound effect
+  opening_dong.mp3       # optional: one is synthesised if absent
   background_music.mp3   # optional: BGM
   watermark.png          # optional: watermark
 ```
 
-Point `.env` at relative or absolute paths. Leave BGM and watermark empty to skip them; the opening sound effect is currently required.
+Point `.env` at relative or absolute paths. Leave BGM and watermark empty to skip them.
+
+**The opening sound effect is no longer required.** Without one it is synthesised: a low sine dropping a fifth, two inharmonic partials, and a lowpassed-noise tail for the room, with the envelope measured against a real cue. Standard library only, no third-party dependency, and no audio of unclear licensing committed to a public repo — which `assets/README.md` already told us not to do. Your own file still wins when present.
 
 ---
 
@@ -197,6 +199,12 @@ never vanishes mid-sentence.
 
 The title gets no caption of its own: the large type in the middle of the frame
 is its caption.
+
+**Without `--title` the title is not spoken twice.** It defaults to the copy's
+first line, and that line is part of the copy the scenes narrate — so speaking
+it as well would say the same sentence twice in a row. The title only gets its
+own voice when it says something the copy does not, which is also the only case
+where the timeline gets longer.
 
 `SPEAK_TITLE=0` turns it off and the timeline returns exactly to what it was.
 
