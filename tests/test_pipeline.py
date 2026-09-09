@@ -816,3 +816,28 @@ def test_a_title_too_long_to_read_loses_its_voice_not_the_pacing():
     # ...and even if one did not, the arithmetic cannot exceed the cap.
     assert acd.opening_lead(configured, round(30.0 * 1_000_000), lead) \
         <= acd.MAX_OPENING_LEAD_US
+
+
+# ------------------------------------ a title in the wrong language ----------
+
+def test_a_title_in_another_language_is_flagged():
+    """The director translates; a --title passed alongside it does not.
+
+    English copy comes back as Chinese scenes, so an English --title ends up
+    read aloud by the Chinese narration voice. The draft is not wrong, it
+    just sounds wrong, and nothing else would say so.
+    """
+    chinese = [_title_scene("你能相信吗？老挝有一座特别的小城。"),
+               _title_scene("这座小城的整个经济，几乎全靠一个产业。")]
+    english = [_title_scene("Can you believe it? A small city in Laos.")]
+
+    assert acd.title_language_differs("One City, One Industry", chinese)
+    assert not acd.title_language_differs("一城一业", chinese)
+    assert not acd.title_language_differs("One City", english)
+
+
+def test_a_title_with_no_letters_has_no_language_to_disagree_with():
+    """"2026" is not English just because it is not Chinese."""
+    chinese = [_title_scene("这座小城的整个经济，几乎全靠一个产业。")]
+    assert not acd.title_language_differs("2026", chinese)
+    assert not acd.title_language_differs("#3", chinese)
