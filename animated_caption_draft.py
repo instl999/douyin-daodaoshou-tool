@@ -1008,7 +1008,9 @@ class Config:
             opening_sound_path=_asset_if_present(
                 "OPENING_SOUND_PATH", DEFAULT_OPENING_SOUND_PATH, {".mp3", ".wav"}
             ),
-            opening_sound_volume=bounded_env_float("OPENING_SOUND_VOLUME", 0.7, 0.0, 2.0),
+            # Unity by default: the opening cue plays exactly as supplied. It
+            # is the user's own file and is meant to sound the way it sounds.
+            opening_sound_volume=bounded_env_float("OPENING_SOUND_VOLUME", 1.0, 0.0, 2.0),
             opening_lead_us=round(bounded_env_float("OPENING_LEAD_SECONDS", 0.8, 0.0, 5.0) * 1_000_000),
             speak_title=env_flag("SPEAK_TITLE", True),
             title_lead_us=round(
