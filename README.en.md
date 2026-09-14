@@ -206,7 +206,9 @@ it as well would say the same sentence twice in a row. The title only gets its
 own voice when it says something the copy does not, which is also the only case
 where the timeline gets longer.
 
-`SPEAK_TITLE=0` turns it off and the timeline returns exactly to what it was.
+**Speaking the title is on by default** (`SPEAK_TITLE=1`). Setting
+`SPEAK_TITLE=0` turns it off, and the timeline returns exactly to what it was
+when the title was drawn but never spoken.
 
 Two things work differently from before and are worth spelling out.
 
@@ -265,7 +267,53 @@ The output shows how each line was split, its framing, which lines end a paragra
 | `--replace` | Allow overwriting an existing draft (**deletes the whole draft folder**) |
 | `--check-config` | Validate configuration and assets without calling any API |
 | `--plan-only` | Generate and print the storyboard only |
+| `--speed X` | Global video speed; overrides `VIDEO_SPEED` in `.env` |
 | `--verbose` | Print a full traceback on failure |
+
+---
+
+## Speed
+
+**1.5× by default.** One number for the whole video: `VIDEO_SPEED` in `.env`,
+or `--speed` for a single run.
+
+```powershell
+python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 1.2
+```
+
+1.0 is the baseline. Every duration in `.env`, and every duration constant in
+the code, is written at 1.0 and means what it says there.
+
+It is deliberately **not** a voice setting, which is the whole point. Speeding
+the narration alone (`ARK_TTS_SPEECH_RATE`) does not produce a faster video: the
+voice finishes early over pictures still holding their old length and a camera
+move still crawling. That reads as a dubbing error, not as pace.
+
+What 1.5× actually does:
+
+| | at 1.5× |
+|---|---|
+| narration | **re-read** faster, not resampled, so there is no pitch shift |
+| shot lengths | measured from the audio that came back, so they follow on their own |
+| captions | cut from the same narration spans, so they cannot drift off it |
+| caption intro animation | ÷1.5 |
+| title card, opening lead, the wait before the title is read | ÷1.5 |
+| paragraph beats, ending hold, the music's duck ramp | ÷1.5 |
+| camera move | rate **×1.5** over a shot ÷1.5 — the two cancel, so the push crosses the same ground, just quicker |
+| music and the opening cue | **unchanged**. They are cues, not a clock, and the stinger played 1.5× is a different sound |
+
+The rule is one line: **a duration divides by speed, a per-second rate
+multiplies by it, and anything measured in pixels does not move.**
+
+The range is 0.5–2.0, which is the speech API's own (`speech_rate` is a
+percentage offset in [-50, 100]). Outside it the picture would be cut to a pace
+its own narration could not be spoken at — the very mismatch this setting
+exists to prevent — so it is refused rather than quietly clamped.
+
+Changing the speed and then using `--resume` **re-reads the narration and keeps
+every image**. Narration read at another speed would put the new timeline on
+the old audio, giving a video at neither speed while every stage reported
+success.
 
 ---
 
@@ -280,8 +328,8 @@ The output shows how each line was split, its framing, which lines end a paragra
            beats and the ending hold, so a pause never shows as black
 [narration] one segment per line, separated only by the paragraph beats
 [captions] aligned to the narration, with an intro animation; silent in the beats
-[title]    first 2.4s, one text track per line (title_overlay, title_overlay_2, ...),
-           coloured line by line
+[title]    first 2.4s at 1.0x, scaled by VIDEO_SPEED; one text track per line
+           (title_overlay, title_overlay_2, ...), coloured line by line
 [SFX]      once, at the open
 [BGM]      0.10 under speech, 0.20 in the gaps; looped, faded at both ends
 [grade]    one filter across the whole video
@@ -303,9 +351,12 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `IMAGE_STYLE_PRESET` | `midnight` | Whole-video art direction, one of nine; see [styles.json](styles.json) |
 | `IMAGE_STYLES_FILE` | empty | Path to the styles JSON; empty uses `styles.json` in the repo root |
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. **The only pacing control**: lower means faster cuts, more images, higher cost |
-| `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second |
-| `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph |
-| `ENDING_HOLD_SECONDS` | `1.8` | How long the last picture holds |
+| `SPEAK_TITLE` | `1` (**on by default**) | Whether the opening title is read aloud. `0` turns it off and the title is drawn but never spoken |
+| `TITLE_LEAD_SECONDS` | `0.45` | How long after the opening cue the title's voice starts (at 1.0×) |
+| `VIDEO_SPEED` | `1.5` | **Global speed**, 1.0 is the baseline; narration, picture, camera and captions move together — see above |
+| `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second (multiplied by `VIDEO_SPEED`) |
+| `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph (at 1.0×) |
+| `ENDING_HOLD_SECONDS` | `1.8` | How long the last picture holds (at 1.0×) |
 | `BGM_VOLUME` / `BGM_LIFT_VOLUME` | `0.10` / `0.20` | Music level under speech / in the gaps |
 | `COLOR_GRADE` | empty = follows the style | Whole-video filter; `none` disables |
 | `NARRATION_SUBTITLE_Y` | `-700` | Caption position; see below |
@@ -349,6 +400,10 @@ Assets that already succeeded are reused; only what is missing is retried:
 ```powershell
 python animated_caption_draft.py --resume my_story
 ```
+
+The one exception is a change of speed. `manifest.json` records what the
+narration on disk was read at, and resuming at a different one re-reads the
+voice and keeps every image — see [Speed](#speed).
 
 > **Overwriting an existing draft requires `--replace`, including with `--resume`.** Overwriting deletes the whole draft folder, so any edits you made in Jianying go with it. Close the draft in Jianying first.
 
