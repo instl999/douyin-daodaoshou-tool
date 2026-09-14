@@ -76,6 +76,39 @@ DEFAULT_ARK_IMAGE_MODEL = "doubao-seedream-5.0-lite"
 DEFAULT_ARK_TTS_MODEL = "seed-tts-2.0"
 DEFAULT_OPENING_SOUND_PATH = "assets/opening_dong.mp3"
 
+# ----------------------------------------------------------- global speed ----
+#
+# VIDEO_SPEED is one number for the whole video: 1.5 means the 1.0x cut played
+# 1.5x faster. 1.0 is the baseline, and every duration in this file, in .env
+# and in styles.json is written at 1.0 and means what it says there.
+#
+# It is deliberately not a voice setting, because the voice is the one thing
+# that cannot be sped up on its own. ARK_TTS_SPEECH_RATE reads the copy faster
+# and nothing else moves, so the narration arrives early over pictures still
+# holding their old length and camera moves still crawling - which reads as a
+# dubbing error rather than as a faster video. The rule the whole file follows
+# instead is one line:
+#
+#     a duration divides by speed, a per-second rate multiplies by it,
+#     and anything measured in pixels does not move.
+#
+# Config.load applies it once, when settings become runtime values, so every
+# consumer downstream is on the video's clock by construction and no new
+# duration can be added that quietly is not. Scene lengths need no scaling at
+# all: they are measured from the audio that actually came back, and the audio
+# was spoken at this speed.
+#
+# Music and the opening cue are left alone on purpose. They are cues, not a
+# clock; nothing in the picture is timed against them, and the stinger played
+# 1.5x is a different sound.
+DEFAULT_VIDEO_SPEED = 1.5
+BASELINE_VIDEO_SPEED = 1.0
+# The bounds are the speech API's own: speech_rate is a percentage offset in
+# [-50, 100]. Past them the copy could no longer be spoken at the rate the
+# pictures are cut to, and the two would separate again.
+MIN_VIDEO_SPEED = 0.5
+MAX_VIDEO_SPEED = 2.0
+
 # The stinger lands first and the title is read over its decay. Measured off
 # the cue itself: the impact peaks in its first 0.25 s and is 10 dB down by
 # 0.5 s, so a voice starting at 0.45 s speaks into the tail rather than over
@@ -377,7 +410,9 @@ DEFAULT_SCENE_CHARACTERS = 22
 MIN_SCENE_CHARACTERS = 8
 DEFAULT_IMAGE_CONCURRENCY = 3
 MAX_IMAGE_CONCURRENCY = 8
-MANIFEST_VERSION = 5
+# 6 added `speed`: a manifest without one was written before the global speed
+# existed, so its narration was read at the baseline.
+MANIFEST_VERSION = 6
 
 NARRATION_SUBTITLE_TRACK = "narration_subtitles"
 TITLE_OVERLAY_TRACK = "title_overlay"
@@ -669,6 +704,88 @@ def bounded_env_float(name: str, default: float, minimum: float, maximum: float)
     return value
 
 
+# ----------------------------------------------------------------- speed ----
+
+def validate_speed(value: float | str | None) -> float:
+    """A usable global speed, or a refusal saying why.
+
+    Unset means the default. Anything else is checked and **rejected** rather
+    than quietly pulled into range: a speed outside what the voice can be read
+    at would leave the pictures cut to a pace the narration cannot match, which
+    is the one thing this setting exists to prevent, so silently building at
+    2.0x for someone who asked for 4.0x would be answering a question they did
+    not ask.
+    """
+    if value is None or value == "":
+        return DEFAULT_VIDEO_SPEED
+    try:
+        speed = float(value)
+    except (TypeError, ValueError):
+        raise RuntimeError(f"VIDEO_SPEED must be a number, not {value!r}.") from None
+    if not MIN_VIDEO_SPEED <= speed <= MAX_VIDEO_SPEED:
+        raise RuntimeError(
+            f"VIDEO_SPEED must be between {MIN_VIDEO_SPEED} and "
+            f"{MAX_VIDEO_SPEED}; {speed:g} is outside what the voice can be "
+            "read at, so the picture and the narration could not stay together."
+        )
+    return speed
+
+
+def speech_rate_for(speed: float, trim: int = 0) -> int:
+    """The speech_rate percentage that reads the copy at `speed`.
+
+    `trim` is ARK_TTS_SPEECH_RATE, which stays a per-voice adjustment: a voice
+    that reads a shade fast at its natural pace still reads a shade fast at
+    1.5x. The two multiply rather than add, so the trim keeps meaning the same
+    proportion of the delivery at every speed.
+
+    The result is clamped to the API's own range instead of being rejected,
+    because the only way to reach the edge is to combine two settings that are
+    each individually legal, and failing a whole run over that would be worse
+    than reading at 2.0x.
+    """
+    combined = speed * (1.0 + trim / 100.0)
+    return max(-50, min(100, round((combined - 1.0) * 100)))
+
+
+def speeds_match(a: float, b: float) -> bool:
+    """Whether two speeds would produce the same narration.
+
+    A tolerance, not equality: a speed reaches the service as an integer
+    percentage, so 1.500 and 1.5004 are the same reading and re-synthesising
+    twenty clips to chase the fourth decimal would be a bill for nothing.
+    """
+    return speech_rate_for(a) == speech_rate_for(b)
+
+
+def paced_us(microseconds: int, speed: float) -> int:
+    """A baseline duration in timeline time. The one conversion there is.
+
+    Rounded to whole microseconds because that is the unit a Jianying draft is
+    written in; a fractional one would be truncated somewhere else instead.
+    """
+    return round(microseconds / speed)
+
+
+def drop_stale_narration(scenes: list[Scene], resuming: bool,
+                         was: float, now: float) -> bool:
+    """Forget narration read at a different speed. Returns whether any was.
+
+    A clip read at another speed is the wrong clip, however well its text
+    matches, and it is not enough to forget it in the manifest: the assets on
+    disk are adopted by filename on the next run, so the paths have to be
+    cleared before that happens.
+
+    The pictures are kept. They have no speed of their own, they are the
+    expensive half of a run, and there is nothing wrong with them.
+    """
+    if not resuming or speeds_match(was, now):
+        return False
+    for scene in scenes:
+        scene.audio_path, scene.duration_us = None, None
+    return True
+
+
 def resolve_asset_path(value: str) -> Path:
     path = Path(value).expanduser()
     return path if path.is_absolute() else ROOT / path
@@ -870,7 +987,19 @@ class Config:
 
     --check-config and a real run both go through Config.load, so the two can
     no longer drift apart.
+
+    **Every duration here is already on the video's clock.** .env is written at
+    the 1.0x baseline - ENDING_HOLD_SECONDS=1.8 means 1.8 s in a video running
+    at natural pace - and `load` divides by `speed` as it parses, which is the
+    same moment it turns every other setting into a runtime value. Doing it
+    here rather than at each use is what makes the global speed safe to extend:
+    a duration added later is scaled because it came through this class, not
+    because whoever added it remembered. `ken_burns_rate` is the one setting
+    that multiplies instead, being a rate per second rather than a duration.
     """
+
+    # How fast the whole video runs. 1.0 is the baseline, 1.5 the default.
+    speed: float
 
     # Ark text / storyboard
     ark_api_key: str
@@ -941,7 +1070,13 @@ class Config:
     ken_burns_rate: float
 
     @classmethod
-    def load(cls) -> Config:
+    def load(cls, speed: float | None = None) -> Config:
+        # First, because most of what follows is measured against it. An
+        # explicit argument is --speed on the command line; it wins over .env
+        # the way every other flag does.
+        speed = validate_speed(speed if speed is not None
+                            else os.getenv("VIDEO_SPEED", "").strip() or None)
+
         mode = env_value("SCENE_LENGTH_MODE", "density").lower()
         if mode not in {"density", "quality"}:
             raise RuntimeError("SCENE_LENGTH_MODE must be either density or quality.")
@@ -977,6 +1112,7 @@ class Config:
         price_raw = os.getenv("ARK_IMAGE_CNY_PER_IMAGE", "").strip()
 
         return cls(
+            speed=speed,
             ark_api_key=required("ARK_API_KEY"),
             ark_base_url=env_value("ARK_BASE_URL", DEFAULT_ARK_BASE_URL).rstrip("/"),
             ark_text_model=env_value("ARK_TEXT_MODEL", DEFAULT_ARK_TEXT_MODEL),
@@ -1005,7 +1141,12 @@ class Config:
             ark_tts_url=env_value("ARK_TTS_URL", DEFAULT_ARK_TTS_URL),
             ark_tts_model=env_value("ARK_TTS_MODEL", DEFAULT_ARK_TTS_MODEL),
             ark_tts_voice_type=required("ARK_TTS_VOICE_TYPE"),
-            ark_tts_speech_rate=bounded_env_int("ARK_TTS_SPEECH_RATE", 0, -50, 100),
+            # The copy is *re-spoken* faster, not resampled afterwards: the
+            # service takes a rate, so there is no pitch shift, and the scene
+            # lengths that everything else is cut to are still measured from
+            # the audio that actually came back.
+            ark_tts_speech_rate=speech_rate_for(
+                speed, bounded_env_int("ARK_TTS_SPEECH_RATE", 0, -50, 100)),
             ark_tts_loudness_rate=bounded_env_int("ARK_TTS_LOUDNESS_RATE", 0, -50, 100),
             tts_concurrency=bounded_env_int("TTS_CONCURRENCY", 3, 1, MAX_IMAGE_CONCURRENCY),
 
@@ -1020,20 +1161,30 @@ class Config:
             # Unity by default: the opening cue plays exactly as supplied. It
             # is the user's own file and is meant to sound the way it sounds.
             opening_sound_volume=bounded_env_float("OPENING_SOUND_VOLUME", 1.0, 0.0, 2.0),
-            opening_lead_us=round(bounded_env_float("OPENING_LEAD_SECONDS", 0.8, 0.0, 5.0) * 1_000_000),
+            opening_lead_us=paced_us(
+                round(bounded_env_float("OPENING_LEAD_SECONDS", 0.8, 0.0, 5.0) * 1_000_000),
+                speed),
             speak_title=env_flag("SPEAK_TITLE", True),
-            title_lead_us=round(
-                bounded_env_float("TITLE_LEAD_SECONDS", DEFAULT_TITLE_LEAD_SECONDS, 0.0, 3.0)
-                * 1_000_000
+            # Scaled with the rest even though it is measured off the cue's
+            # own decay: the title's voice is now 1.5x too, so a lead left at
+            # 0.45 s would be a longer share of a shorter opening.
+            title_lead_us=paced_us(
+                round(bounded_env_float("TITLE_LEAD_SECONDS", DEFAULT_TITLE_LEAD_SECONDS, 0.0, 3.0)
+                      * 1_000_000),
+                speed,
             ),
             bgm_path=_optional_asset("BGM_PATH", {".mp3", ".wav"}),
             bgm_volume=bounded_env_float("BGM_VOLUME", 0.10, 0.0, 1.0),
             bgm_lift_volume=bounded_env_float("BGM_LIFT_VOLUME", 0.20, 0.0, 1.0),
-            bgm_ramp_us=round(bounded_env_float("BGM_RAMP_SECONDS", 0.25, 0.05, 2.0) * 1_000_000),
-            paragraph_pause_us=round(
-                bounded_env_float("PARAGRAPH_PAUSE_SECONDS", 0.5, 0.0, 3.0) * 1_000_000
-            ),
-            ending_hold_us=round(bounded_env_float("ENDING_HOLD_SECONDS", 1.8, 0.0, 10.0) * 1_000_000),
+            bgm_ramp_us=paced_us(
+                round(bounded_env_float("BGM_RAMP_SECONDS", 0.25, 0.05, 2.0) * 1_000_000),
+                speed),
+            paragraph_pause_us=paced_us(
+                round(bounded_env_float("PARAGRAPH_PAUSE_SECONDS", 0.5, 0.0, 3.0) * 1_000_000),
+                speed),
+            ending_hold_us=paced_us(
+                round(bounded_env_float("ENDING_HOLD_SECONDS", 1.8, 0.0, 10.0) * 1_000_000),
+                speed),
             watermark_path=_optional_asset("WATERMARK_PATH", {".png", ".jpg", ".jpeg"}),
             color_grade=env_value("COLOR_GRADE", style.grade),
             color_grade_intensity=bounded_env_float("COLOR_GRADE_INTENSITY", 12.0, 0.0, 100.0),
@@ -1052,8 +1203,9 @@ class Config:
             subtitle_max_line_width=bounded_env_float("SUBTITLE_MAX_LINE_WIDTH", 0.88, 0.4, 1.0),
             subtitle_em_px=bounded_env_float("SUBTITLE_EM_PX", DEFAULT_SUBTITLE_EM_PX, 1.0, 40.0),
             subtitle_animation=env_value("SUBTITLE_ANIMATION", "向上擦除"),
-            subtitle_animation_us=round(
-                bounded_env_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000
+            subtitle_animation_us=paced_us(
+                round(bounded_env_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000),
+                speed,
             ),
             title_style=title_style,
             title_font=env_value("TITLE_FONT", DEFAULT_TITLE_FONT),
@@ -1068,14 +1220,24 @@ class Config:
             title_max_line_width=bounded_env_float(
                 "TITLE_MAX_LINE_WIDTH", DEFAULT_TITLE_MAX_LINE_WIDTH, 0.4, 1.0
             ),
-            title_us=round(
-                bounded_env_float("TITLE_SECONDS", DEFAULT_TITLE_SECONDS, 0.5, 15.0) * 1_000_000
+            title_us=paced_us(
+                round(bounded_env_float("TITLE_SECONDS", DEFAULT_TITLE_SECONDS, 0.5, 15.0)
+                      * 1_000_000),
+                speed,
             ),
             title_animation=env_value("TITLE_ANIMATION", "缩小"),
             title_outro=env_value("TITLE_OUTRO", "放大"),
             # 0 disables the camera move entirely; KEN_BURNS=0 still works.
+            #
+            # Multiplied, not divided: this is a fraction of the frame per
+            # *second*, and a video played 1.5x faster crosses 1.5x as much of
+            # the frame each second. The two changes cancel over a shot - a
+            # scene 1.5x shorter at a 1.5x rate travels exactly as far as it
+            # did - which is what a camera move looks like when the whole video
+            # is simply running faster, rather than a push that has slowed to a
+            # crawl underneath quicker narration.
             ken_burns_rate=(
-                bounded_env_float("KEN_BURNS_RATE", DEFAULT_KEN_BURNS_RATE, 0.0, 0.2)
+                bounded_env_float("KEN_BURNS_RATE", DEFAULT_KEN_BURNS_RATE, 0.0, 0.2) * speed
                 if env_flag("KEN_BURNS", True) else 0.0
             ),
         )
@@ -1171,6 +1333,10 @@ def describe_configuration(cfg: Config) -> None:
     subtitle_px = round(cfg.subtitle_y * CANVAS_HALF_HEIGHT)
     title_px = round(cfg.title_y * CANVAS_HALF_HEIGHT)
     print(f"Canvas: {CANVAS_WIDTH}x{CANVAS_HEIGHT} @30fps (landscape)")
+    print(f"Speed:  {cfg.speed:.2f}x"
+          + ("  (1.00x is natural pace; everything below is already scaled "
+             "to it)" if cfg.speed != BASELINE_VIDEO_SPEED else "")
+          + f"  -> voice speech_rate {cfg.ark_tts_speech_rate:+d}%")
     label = f" {cfg.style.label}" if cfg.style.label else ""
     print(f"Art style: {cfg.style_preset}{label}"
           f"{' (overridden by IMAGE_STYLE_PROMPT)' if os.getenv('IMAGE_STYLE_PROMPT', '').strip() else ''}"
@@ -1202,7 +1368,7 @@ def describe_configuration(cfg: Config) -> None:
     print(f"Pauses:     {cfg.paragraph_pause_us / 1e6:.2f}s after a paragraph, "
           f"{cfg.ending_hold_us / 1e6:.2f}s held at the end")
     print(f"Colour grade: {cfg.color_grade or 'none'} at {cfg.color_grade_intensity:.0f}%")
-    for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR",
+    for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR", "VIDEO_SPEED",
                  "NARRATION_SUBTITLE_Y", "NARRATION_SUBTITLE_SIZE", "SUBTITLE_FONT",
                  "TITLE_STYLE", "TITLE_FONT", "TITLE_SIZE", "COLOR_GRADE",
                  "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT", STYLES_FILE_SETTING):
@@ -1791,18 +1957,24 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
     # configured 0.8 s lead is enough for the stinger alone and about half of
     # what a spoken title needs.
     title_material = AudioMaterial(str(title_audio)) if title_audio else None
+    # The breath after the title and the cap on the whole head are baseline
+    # numbers like everything else in this file; cfg already holds its own
+    # durations on the video's clock, and these two live at module scope, so
+    # they are the two that have to be put on it here.
+    tail_us = paced_us(TITLE_TAIL_US, cfg.speed)
+    cap_us = paced_us(MAX_OPENING_LEAD_US, cfg.speed)
     if title_material is not None and not title_voice_fits(
-            title_material.duration, cfg.title_lead_us):
+            title_material.duration, cfg.title_lead_us, tail_us, cap_us):
         # Too long to read before the copy has to start. The type stays; only
         # the voice-over goes. Silently clamping instead would talk the copy
         # over the tail of its own title.
         print(f"Title voice-over skipped: reading it takes "
               f"{title_material.duration / 1e6:.1f}s and the opening may not "
-              f"run past {MAX_OPENING_LEAD_US / 1e6:.1f}s. Use a shorter --title.")
+              f"run past {cap_us / 1e6:.1f}s. Use a shorter --title.")
         title_material = None
     lead_us = opening_lead(cfg.opening_lead_us,
                            title_material.duration if title_material else 0,
-                           cfg.title_lead_us)
+                           cfg.title_lead_us, tail_us, cap_us)
 
     timings, total_duration = plan_timeline(
         [material.duration for material in materials],
@@ -2123,13 +2295,20 @@ def add_bgm(cfg: Config, draft: Any, track: Any, material: Any, total_duration: 
 # ----------------------------------------------------------------- state ----
 
 def save_run_state(asset_root: Path, draft_name: str, title: str, copy: str, scenes: list[Scene],
-                   characters: list[Character], status: str, failures: list[dict[str, Any]]) -> None:
+                   characters: list[Character], status: str, failures: list[dict[str, Any]],
+                   speed: float = BASELINE_VIDEO_SPEED) -> None:
     state = {
         "version": MANIFEST_VERSION,
         "draft_name": draft_name,
         "title": title,
         "copy": copy,
         "status": status,
+        # What the narration on disk was actually read at. Without it a resume
+        # at another speed would keep the old clips, cut the new timeline to
+        # them, and produce a video that is neither speed while reporting a
+        # clean run - which is exactly the silent kind of wrong this tool is
+        # full of guards against.
+        "speed": speed,
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "characters": [asdict(character) for character in characters],
         "scenes": [asdict(scene) for scene in scenes],
@@ -2170,6 +2349,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Validate local configuration and assets without API calls.")
     parser.add_argument("--plan-only", dest="plan_only", action="store_true",
                         help="Generate and print a storyboard only; this still calls the storyboard API.")
+    parser.add_argument("--speed", type=float, default=None, metavar="X",
+                        help=("How fast the whole video runs: narration, "
+                              "picture, camera moves, pauses and subtitles "
+                              "together. 1.0 is natural pace. Overrides "
+                              f"VIDEO_SPEED (default {DEFAULT_VIDEO_SPEED})."))
     parser.add_argument("--verbose", action="store_true", help="Print a full traceback on failure.")
     return parser
 
@@ -2178,7 +2362,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     load_env()
-    cfg = Config.load()
+    cfg = Config.load(speed=args.speed)
     if args.check_config:
         print("Configuration OK")
         describe_configuration(cfg)
@@ -2186,6 +2370,9 @@ def main() -> int:
 
     failures: list[dict[str, Any]] = []
     characters: list[Character] = []
+    # What the narration already on disk was read at. A fresh run has none, so
+    # it is whatever this run is about to use.
+    previous_speed = cfg.speed
 
     if args.resume:
         draft_name = args.resume
@@ -2215,6 +2402,9 @@ def main() -> int:
             if isinstance(item, dict) and item.get("id") and item.get("desc")
         ]
         failures = state.get("failures", [])
+        # Absent before manifest v6, which means the clips were made before
+        # this setting existed and were read at the baseline.
+        previous_speed = validate_speed(state.get("speed", BASELINE_VIDEO_SPEED))
         # A resume used to overwrite the draft unconditionally, which deletes
         # any edits already made in Jianying. It now needs --replace like any
         # other run.
@@ -2240,7 +2430,8 @@ def main() -> int:
         scenes, characters = plan_scenes(cfg, copy)
         append_run_log(asset_root, "storyboard_completed", scene_count=len(scenes),
                        character_count=len(characters))
-        save_run_state(asset_root, draft_name, title, copy, scenes, characters, "planned", failures)
+        save_run_state(asset_root, draft_name, title, copy, scenes,
+                       characters, "planned", failures, cfg.speed)
 
     if args.plan_only:
         print(json.dumps(
@@ -2254,10 +2445,20 @@ def main() -> int:
     audio_dir, image_dir = asset_root / "audio", asset_root / "images"
     audio_dir.mkdir(parents=True, exist_ok=True)
     image_dir.mkdir(parents=True, exist_ok=True)
+    stale_speed = drop_stale_narration(scenes, bool(args.resume),
+                                       previous_speed, cfg.speed)
+    if stale_speed:
+        print(f"Speed changed since this run was made "
+              f"({previous_speed:.2f}x -> {cfg.speed:.2f}x); the narration is "
+              f"being re-read at the new speed. Images are kept.")
+        append_run_log(asset_root, "revoice_for_speed", was=previous_speed,
+                       now=cfg.speed)
     for index, scene in enumerate(scenes, 1):
-        adopt_existing_asset(scene, "audio_path", audio_dir / f"{index:02d}.mp3")
+        if not stale_speed:
+            adopt_existing_asset(scene, "audio_path", audio_dir / f"{index:02d}.mp3")
         adopt_existing_asset(scene, "image_path", image_dir / f"{index:02d}.png")
-    save_run_state(asset_root, draft_name, title, copy, scenes, characters, "reconciled", failures)
+    save_run_state(asset_root, draft_name, title, copy, scenes,
+                   characters, "reconciled", failures, cfg.speed)
     append_run_log(asset_root, "assets_reconciled")
 
     def make_tts(index: int, scene: Scene) -> tuple[int, Path]:
@@ -2280,17 +2481,20 @@ def main() -> int:
                 except Exception as exc:
                     failure = {"stage": "tts", "scene": index, "error": str(exc)}
                     failures.append(failure)
-                    save_run_state(asset_root, draft_name, title, copy, scenes, characters, "failed", failures)
+                    save_run_state(asset_root, draft_name, title, copy, scenes,
+                                   characters, "failed", failures, cfg.speed)
                     append_run_log(asset_root, "tts_failed", **failure)
                     raise
                 scenes[index - 1].audio_path = str(audio_path.resolve())
-                save_run_state(asset_root, draft_name, title, copy, scenes, characters, "tts_in_progress", failures)
+                save_run_state(asset_root, draft_name, title, copy, scenes,
+                               characters, "tts_in_progress", failures, cfg.speed)
                 append_run_log(asset_root, "tts_completed", scene=index)
                 completed_tts += 1
                 report_progress("Voice-over", completed_tts, len(pending_tts))
 
     populate_audio_durations(scenes)
-    save_run_state(asset_root, draft_name, title, copy, scenes, characters, "audio_durations_ready", failures)
+    save_run_state(asset_root, draft_name, title, copy, scenes,
+                   characters, "audio_durations_ready", failures, cfg.speed)
 
     # The title gets its own voice clip. It is not one of the scenes: the copy
     # is what the scenes narrate, and when --title is given the overlay says
@@ -2310,7 +2514,13 @@ def main() -> int:
         # whatever audio is already on disk, so a fixed name meant resuming
         # with a different --title spoke the OLD title over the new one on
         # screen - and the run would look entirely successful.
-        digest = hashlib.sha1(title.strip().encode("utf-8")).hexdigest()[:12]
+        # Keyed on the speed as well as the text. The scene clips are dropped
+        # wholesale when the speed changes; this one is cached by name, so the
+        # name is what has to carry it - otherwise a re-run at 1.2x kept a
+        # title read at 1.5x over a card sized for 1.2x.
+        digest = hashlib.sha1(
+            f"{title.strip()}@{speech_rate_for(cfg.speed)}".encode()
+        ).hexdigest()[:12]
         candidate = audio_dir / f"title_{digest}.mp3"
         if not candidate.is_file() or candidate.stat().st_size == 0:
             append_run_log(asset_root, "title_tts_started")
@@ -2359,18 +2569,21 @@ def main() -> int:
                     failure = {"stage": "image", "scene": index, "error": str(exc)}
                     failures.append(failure)
                     current_image_failures.append(failure)
-                    save_run_state(asset_root, draft_name, title, copy, scenes, characters, "failed", failures)
+                    save_run_state(asset_root, draft_name, title, copy, scenes,
+                                   characters, "failed", failures, cfg.speed)
                     append_run_log(asset_root, "image_failed", **failure)
                 else:
                     scenes[index - 1].image_path = str(image_path.resolve())
-                    save_run_state(asset_root, draft_name, title, copy, scenes, characters, "image_in_progress", failures)
+                    save_run_state(asset_root, draft_name, title, copy, scenes,
+                                   characters, "image_in_progress", failures, cfg.speed)
                     append_run_log(asset_root, "image_completed", scene=index)
                 finally:
                     finished_images += 1
                     report_progress("Images", finished_images, len(pending_images))
 
         if current_image_failures:
-            save_run_state(asset_root, draft_name, title, copy, scenes, characters, "failed", failures)
+            save_run_state(asset_root, draft_name, title, copy, scenes,
+                           characters, "failed", failures, cfg.speed)
             first_failure = current_image_failures[0]
             raise RuntimeError(
                 f"{len(current_image_failures)} image(s) failed; successful images were kept for --resume. "
@@ -2384,12 +2597,14 @@ def main() -> int:
     except Exception as exc:
         failure = {"stage": "draft", "error": str(exc)}
         failures.append(failure)
-        save_run_state(asset_root, draft_name, title, copy, scenes, characters, "failed", failures)
+        save_run_state(asset_root, draft_name, title, copy, scenes,
+                       characters, "failed", failures, cfg.speed)
         append_run_log(asset_root, "draft_failed", **failure)
         raise
     report_progress("Draft", 1, 1)
     failures = []
-    save_run_state(asset_root, draft_name, title, copy, scenes, characters, "completed", failures)
+    save_run_state(asset_root, draft_name, title, copy, scenes,
+                   characters, "completed", failures, cfg.speed)
     append_run_log(asset_root, "completed", draft_path=str(draft_path))
     print(f"Done: {draft_path}")
     return 0

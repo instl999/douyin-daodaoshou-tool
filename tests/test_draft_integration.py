@@ -353,6 +353,11 @@ def test_unknown_style_preset_is_rejected(monkeypatch, workspace):
 # overlay genuinely has to be held. At 1.6s the voice finished inside the
 # default hold and the test passed whether the hold was extended or not - which
 # is a test that reports on nothing.
+#
+# A baseline length, divided by the run's speed where the clip is made. The
+# service reads the title at the video's speed like everything else, so a
+# fixture pinned at 3.0s is a 1.0x clip - and at 1.5x it would be held against
+# a cap that has shortened while it has not, which tests an impossible video.
 TITLE_SECONDS = 3.0
 
 
@@ -360,7 +365,7 @@ TITLE_SECONDS = 3.0
 def spoken(workspace):
     assets, _ = workspace
     cfg = acd.Config.load()
-    voice = _wav(assets / "title.wav", TITLE_SECONDS)
+    voice = _wav(assets / "title.wav", TITLE_SECONDS / cfg.speed)
     path = acd.build_draft(cfg, _scenes(assets), "pytest_spoken", replace=False,
                            title="男人不能为女人做的3件事", title_audio=voice,
                            opening_sound=cfg.opening_sound_path)
@@ -431,3 +436,138 @@ def test_an_unspoken_title_leaves_the_timeline_alone(draft, spoken):
     spoken_first = _sorted_segments(spoken_tracks[acd.NARRATION_SUBTITLE_TRACK])[0]
     assert plain_first["target_timerange"]["start"] == cfg.opening_lead_us
     assert spoken_first["target_timerange"]["start"] > cfg.opening_lead_us
+
+
+# ------------------------------------------------- the global video speed ----
+#
+# The strongest form this can be tested in: build the same draft twice, at 1.0x
+# and at 1.5x, and compare every segment on every track. A setting that reaches
+# the narration and misses the pictures - which is what a speech rate on its own
+# does - fails here on the visuals track while passing everywhere else.
+
+
+def _draft_at(assets: Path, speed: float, name: str):
+    """The same video at `speed`, as a real Jianying draft.
+
+    The scene clips are written at `SCENE_SECONDS / speed` because that is what
+    the service returns: the copy is re-read faster, not resampled afterwards.
+    Feeding 1.0x audio to a 1.5x build would test a video that cannot occur.
+    """
+    for index, seconds in enumerate(SCENE_SECONDS, 1):
+        _wav(assets / f"{index:02d}.wav", seconds / speed)
+    voice = _wav(assets / "speed_title.wav", TITLE_SECONDS / speed)
+    cfg = acd.Config.load(speed=speed)
+    path = acd.build_draft(cfg, _scenes(assets), name, replace=True,
+                           title="男人不能为女人做的3件事", title_audio=voice,
+                           opening_sound=cfg.opening_sound_path)
+    content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
+    return cfg, content, {track["name"]: track for track in content["tracks"]}
+
+
+@pytest.fixture
+def two_speeds(workspace):
+    assets, _ = workspace
+    return _draft_at(assets, 1.0, "pytest_speed_1x"), _draft_at(assets, 1.5, "pytest_speed_15x")
+
+
+def _spans(track):
+    return [(seg["target_timerange"]["start"], seg["target_timerange"]["duration"])
+            for seg in _sorted_segments(track)]
+
+
+# pymediainfo reports a clip's length in whole milliseconds, so two
+# independently probed files can each be up to a tick away from the length
+# their samples say, and a segment's start carries one tick per scene before
+# it. The slack below is that measurement floor, not a margin for the video to
+# drift in: a track that failed to scale is out by seconds, not microseconds.
+PROBE_TICK_US = 1_000
+DRIFT_US = PROBE_TICK_US * (len(SCENE_SECONDS) + 2)
+
+
+@pytest.mark.parametrize("track_name", [
+    "visuals",                              # the pictures
+    "voiceover",                            # the narration
+    acd.NARRATION_SUBTITLE_TRACK,           # the subtitles
+])
+def test_speed_moves_every_track_together(two_speeds, track_name):
+    """Narration, picture and subtitle share one clock at any speed.
+
+    This is the whole feature in one assertion. Before, only the voice could be
+    sped up: the copy finished early and the picture sat there holding a length
+    measured for a slower video.
+    """
+    (_, _, slow_tracks), (_, _, fast_tracks) = two_speeds
+    slow, fast = _spans(slow_tracks[track_name]), _spans(fast_tracks[track_name])
+    assert len(slow) == len(fast)
+    for (slow_start, slow_len), (fast_start, fast_len) in zip(slow, fast, strict=True):
+        assert fast_start == pytest.approx(slow_start / 1.5, abs=DRIFT_US)
+        assert fast_len == pytest.approx(slow_len / 1.5, abs=PROBE_TICK_US * 2)
+
+
+def test_speed_shortens_the_finished_video_by_the_factor(two_speeds):
+    (_, slow_content, _), (_, fast_content, _) = two_speeds
+    assert fast_content["duration"] == pytest.approx(
+        slow_content["duration"] / 1.5, rel=0.002)
+
+
+def test_the_subtitle_still_sits_exactly_on_its_own_narration(two_speeds):
+    """Sped up separately these two drift; the failure is a caption a beat late."""
+    for _, _, tracks in two_speeds:
+        captions = _spans(tracks[acd.NARRATION_SUBTITLE_TRACK])
+        assert len(captions) == len(SCENE_SECONDS)
+        # The title's own clip also sits on the voiceover track and has no
+        # caption of its own, so the narration spans are the tail of that list.
+        narration = _spans(tracks["voiceover"])[-len(captions):]
+        assert captions == narration
+
+
+def test_the_paragraph_breath_and_the_ending_hold_shorten_too(two_speeds):
+    """A pause is a duration. Left alone it becomes a stall in a quicker video."""
+    (slow_cfg, _, slow_tracks), (fast_cfg, _, fast_tracks) = two_speeds
+    assert fast_cfg.paragraph_pause_us == pytest.approx(
+        slow_cfg.paragraph_pause_us / 1.5, abs=1)
+    # And it is really in the timeline, not only in the config: the picture
+    # covering the paused scene runs longer than its own narration by it.
+    for cfg, tracks in ((slow_cfg, slow_tracks), (fast_cfg, fast_tracks)):
+        paused = _spans(tracks["visuals"])[1]        # scene 2 has pause_after
+        narration = _spans(tracks["voiceover"])
+        spoken = next(length for start, length in narration
+                      if start == paused[0])
+        assert paused[1] - spoken == pytest.approx(cfg.paragraph_pause_us,
+                                                   abs=PROBE_TICK_US)
+
+
+def test_the_opening_cue_keeps_its_own_pace(two_speeds):
+    """Music and cues are not on the video's clock, and must not be put on it.
+
+    The stinger is a specific sound these videos are known by. Played 1.5x it
+    is a different sound, and nothing in the picture is timed against it - the
+    copy waits for the cue, not the other way round.
+    """
+    (_, _, slow_tracks), (_, _, fast_tracks) = two_speeds
+    slow = _spans(slow_tracks["opening_sfx"])[0]
+    fast = _spans(fast_tracks["opening_sfx"])[0]
+    assert slow == fast
+
+
+def test_the_camera_move_is_quicker_rather_than_smaller(two_speeds):
+    """The push crosses the same ground in a shorter shot, so it reads the same.
+
+    Keyframe values identical, the times between them shorter. Scaling the rate
+    down with the duration instead would leave the picture nearly still under
+    narration that had sped up.
+    """
+    (_, _, slow_tracks), (_, _, fast_tracks) = two_speeds
+
+    def scale_curve(track):
+        segment = _sorted_segments(track)[0]
+        frames = [kf for group in segment.get("common_keyframes", [])
+                  if group.get("property_type") == "KFTypeScaleX"
+                  for kf in group.get("keyframe_list", [])]
+        return [(kf["time_offset"], round(kf["values"][0], 6)) for kf in frames]
+
+    slow, fast = scale_curve(slow_tracks["visuals"]), scale_curve(fast_tracks["visuals"])
+    assert slow and len(slow) == len(fast)
+    assert [value for _, value in slow] == [value for _, value in fast]
+    assert [time for time, _ in fast] == [
+        pytest.approx(time / 1.5, abs=PROBE_TICK_US * 2) for time, _ in slow]

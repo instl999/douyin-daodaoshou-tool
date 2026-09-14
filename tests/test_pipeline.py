@@ -709,3 +709,154 @@ def test_a_title_with_no_letters_has_no_language_to_disagree_with():
     chinese = [_title_scene("这座小城的整个经济，几乎全靠一个产业。")]
     assert not acd.title_language_differs("2026", chinese)
     assert not acd.title_language_differs("#3", chinese)
+
+
+# ------------------------------------------------- the global video speed ----
+#
+# Every test here asserts a *ratio* between two speeds rather than an absolute
+# number. The failure this setting exists to prevent is one part of the video
+# keeping its old length while the rest speeds up, and a ratio is the only
+# thing that catches that wherever it happens.
+
+
+def test_the_default_speed_is_1_5_and_the_baseline_is_1_0():
+    assert acd.DEFAULT_VIDEO_SPEED == 1.5
+    assert acd.BASELINE_VIDEO_SPEED == 1.0
+    assert acd.validate_speed(None) == 1.5
+    assert acd.validate_speed("") == 1.5
+
+
+def test_a_speed_outside_what_the_voice_can_read_is_refused():
+    """Not clamped silently: past this the picture and the voice separate.
+
+    speech_rate is a percentage offset in [-50, 100], so a video cut to 3x
+    would be cut to a pace its own narration could not be spoken at - which is
+    the mismatch the whole setting exists to remove.
+    """
+    for bad in (0.2, 3.0, -1):
+        with pytest.raises(RuntimeError, match="VIDEO_SPEED"):
+            acd.validate_speed(bad)
+    with pytest.raises(RuntimeError, match="VIDEO_SPEED"):
+        acd.validate_speed("quickly")
+    assert acd.validate_speed(acd.MIN_VIDEO_SPEED) == acd.MIN_VIDEO_SPEED
+    assert acd.validate_speed(acd.MAX_VIDEO_SPEED) == acd.MAX_VIDEO_SPEED
+
+
+def test_the_copy_is_read_faster_rather_than_resampled():
+    """The service takes a rate, so there is no pitch shift to undo later."""
+    assert acd.speech_rate_for(1.0) == 0
+    assert acd.speech_rate_for(1.5) == 50
+    assert acd.speech_rate_for(0.5) == -50
+
+
+def test_a_voice_trim_keeps_its_meaning_at_every_speed():
+    """ARK_TTS_SPEECH_RATE stays a per-voice adjustment, not a second speed.
+
+    It multiplies rather than adds, so "this voice reads 10% fast" is still
+    10% fast at 1.5x instead of becoming 6.7% fast.
+    """
+    assert acd.speech_rate_for(1.0, 10) == 10
+    assert acd.speech_rate_for(1.5, 10) == 65      # 1.5 * 1.10 = 1.65
+    assert acd.speech_rate_for(2.0, 50) == 100     # clamped to the API's ceiling
+
+
+def test_every_configured_duration_arrives_already_scaled(monkeypatch, tmp_path):
+    """Config is where settings become timeline values, so it is where speed lands.
+
+    Scaling at each use instead would make the next duration added to this file
+    correct only if whoever added it remembered.
+    """
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    for name, value in {"ARK_API_KEY": "k", "ARK_TTS_VOICE_TYPE": "v",
+                        "JIAN_YING_DRAFT_DIR": str(drafts)}.items():
+        monkeypatch.setenv(name, value)
+
+    slow = acd.Config.load(speed=1.0)
+    fast = acd.Config.load(speed=1.5)
+    for field in ("opening_lead_us", "title_lead_us", "title_us", "bgm_ramp_us",
+                  "paragraph_pause_us", "ending_hold_us", "subtitle_animation_us"):
+        assert getattr(fast, field) == pytest.approx(
+            getattr(slow, field) / 1.5, abs=1), field
+    # A rate per second, not a duration: it multiplies.
+    assert fast.ken_burns_rate == pytest.approx(slow.ken_burns_rate * 1.5)
+    # And the copy is read at the speed the pictures are cut to.
+    assert fast.ark_tts_speech_rate == 50
+
+
+def test_the_env_file_still_wins_when_no_flag_is_given(monkeypatch, tmp_path):
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    for name, value in {"ARK_API_KEY": "k", "ARK_TTS_VOICE_TYPE": "v",
+                        "JIAN_YING_DRAFT_DIR": str(drafts),
+                        "VIDEO_SPEED": "1.25"}.items():
+        monkeypatch.setenv(name, value)
+    assert acd.Config.load().speed == 1.25
+    assert acd.Config.load(speed=1.75).speed == 1.75      # --speed overrides it
+
+
+def test_the_camera_crosses_the_same_ground_in_a_shorter_shot():
+    """A push at 1.5x is the same push, played faster - not one that crawls.
+
+    Travel is rate x seconds. The scene is 1.5x shorter and the rate is 1.5x
+    higher, so the endpoints are identical and the move simply happens quicker.
+    Leaving the rate alone would have kept the old travel-per-second under
+    narration that had moved on, which is a camera visibly lagging its video.
+    """
+    move = acd.KEN_BURNS_MOVES[0]
+    slow = acd.ken_burns_keyframes(6 * SECOND, move, acd.DEFAULT_KEN_BURNS_RATE)
+    fast = acd.ken_burns_keyframes(round(6 * SECOND / 1.5), move,
+                                   acd.DEFAULT_KEN_BURNS_RATE * 1.5)
+    assert fast == pytest.approx(slow)
+
+
+def test_the_opening_cap_shortens_with_everything_else():
+    """4s of title card in a 1.5x video is 4s of the viewer waiting.
+
+    The cap and the breath after the title are the two durations that live at
+    module scope rather than on Config, so they are the two a caller has to
+    put on the clock itself.
+    """
+    cap = acd.paced_us(acd.MAX_OPENING_LEAD_US, 1.5)
+    tail = acd.paced_us(acd.TITLE_TAIL_US, 1.5)
+    assert cap == pytest.approx(acd.MAX_OPENING_LEAD_US / 1.5, abs=1)
+    # A title that fitted at 1.0x need not fit at 1.5x - but the title read at
+    # 1.5x is shorter too, so the one that actually occurs still does.
+    spoken_at_1x = round(2.6 * SECOND)
+    lead = acd.paced_us(round(0.45 * SECOND), 1.5)
+    assert not acd.title_voice_fits(spoken_at_1x, lead, tail, cap)
+    assert acd.title_voice_fits(round(spoken_at_1x / 1.5), lead, tail, cap)
+
+
+def test_a_manifest_from_another_speed_is_not_reused():
+    """Resuming keeps the pictures and re-reads the voice.
+
+    Cut to the old clips the video would be at neither speed, and every stage
+    would report success.
+    """
+    assert acd.speeds_match(1.5, 1.5)
+    assert acd.speeds_match(1.5, 1.5004)      # same integer speech_rate
+    assert not acd.speeds_match(1.5, 1.0)
+
+
+def test_resuming_at_a_new_speed_forgets_the_voice_and_keeps_the_pictures():
+    """Clearing the paths is the point: assets are adopted back by filename.
+
+    Forgetting the clips only in the manifest would let the next run re-adopt
+    the same files off disk, cut the new timeline to them, and report a clean
+    resume - a video at neither speed with nothing anywhere saying so.
+    """
+    def made():
+        return [acd.Scene(text="一句话", image_prompt="p",
+                          audio_path="01.mp3", image_path="01.png",
+                          duration_us=2 * SECOND)]
+
+    scenes = made()
+    assert acd.drop_stale_narration(scenes, True, 1.0, 1.5)
+    assert scenes[0].audio_path is None and scenes[0].duration_us is None
+    assert scenes[0].image_path == "01.png"      # the expensive half is kept
+
+    for resuming, was, now in ((True, 1.5, 1.5), (False, 1.0, 1.5)):
+        scenes = made()
+        assert not acd.drop_stale_narration(scenes, resuming, was, now)
+        assert scenes[0].audio_path == "01.mp3"
