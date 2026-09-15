@@ -78,8 +78,8 @@ DEFAULT_OPENING_SOUND_PATH = "assets/opening_dong.mp3"
 
 # ----------------------------------------------------------- global speed ----
 #
-# VIDEO_SPEED is one number for the whole video: 1.5 means the 1.0x cut played
-# 1.5x faster. 1.0 is the baseline, and every duration in this file, in .env
+# VIDEO_SPEED is one number for the whole video: 1.2 means the 1.0x cut played
+# 1.2x faster. 1.0 is the baseline, and every duration in this file, in .env
 # and in styles.json is written at 1.0 and means what it says there.
 #
 # It is deliberately not a voice setting, because the voice is the one thing
@@ -100,8 +100,8 @@ DEFAULT_OPENING_SOUND_PATH = "assets/opening_dong.mp3"
 #
 # Music and the opening cue are left alone on purpose. They are cues, not a
 # clock; nothing in the picture is timed against them, and the stinger played
-# 1.5x is a different sound.
-DEFAULT_VIDEO_SPEED = 1.5
+# 1.2x is a different sound.
+DEFAULT_VIDEO_SPEED = 1.2
 BASELINE_VIDEO_SPEED = 1.0
 # The bounds are the speech API's own: speech_rate is a percentage offset in
 # [-50, 100]. Past them the copy could no longer be spoken at the rate the
@@ -736,7 +736,7 @@ def speech_rate_for(speed: float, trim: int = 0) -> int:
 
     `trim` is ARK_TTS_SPEECH_RATE, which stays a per-voice adjustment: a voice
     that reads a shade fast at its natural pace still reads a shade fast at
-    1.5x. The two multiply rather than add, so the trim keeps meaning the same
+    1.2x. The two multiply rather than add, so the trim keeps meaning the same
     proportion of the delivery at every speed.
 
     The result is clamped to the API's own range instead of being rejected,
@@ -752,7 +752,7 @@ def speeds_match(a: float, b: float) -> bool:
     """Whether two speeds would produce the same narration.
 
     A tolerance, not equality: a speed reaches the service as an integer
-    percentage, so 1.500 and 1.5004 are the same reading and re-synthesising
+    percentage, so 1.200 and 1.2004 are the same reading and re-synthesising
     twenty clips to chase the fourth decimal would be a bill for nothing.
     """
     return speech_rate_for(a) == speech_rate_for(b)
@@ -998,7 +998,7 @@ class Config:
     that multiplies instead, being a rate per second rather than a duration.
     """
 
-    # How fast the whole video runs. 1.0 is the baseline, 1.5 the default.
+    # How fast the whole video runs. 1.0 is the baseline, 1.2 the default.
     speed: float
 
     # Ark text / storyboard
@@ -1166,7 +1166,7 @@ class Config:
                 speed),
             speak_title=env_flag("SPEAK_TITLE", True),
             # Scaled with the rest even though it is measured off the cue's
-            # own decay: the title's voice is now 1.5x too, so a lead left at
+            # own decay: the title's voice is now 1.2x too, so a lead left at
             # 0.45 s would be a longer share of a shorter opening.
             title_lead_us=paced_us(
                 round(bounded_env_float("TITLE_LEAD_SECONDS", DEFAULT_TITLE_LEAD_SECONDS, 0.0, 3.0)
@@ -1230,9 +1230,9 @@ class Config:
             # 0 disables the camera move entirely; KEN_BURNS=0 still works.
             #
             # Multiplied, not divided: this is a fraction of the frame per
-            # *second*, and a video played 1.5x faster crosses 1.5x as much of
+            # *second*, and a video played 1.2x faster crosses 1.2x as much of
             # the frame each second. The two changes cancel over a shot - a
-            # scene 1.5x shorter at a 1.5x rate travels exactly as far as it
+            # scene 1.2x shorter at a 1.2x rate travels exactly as far as it
             # did - which is what a camera move looks like when the whole video
             # is simply running faster, rather than a push that has slowed to a
             # crawl underneath quicker narration.

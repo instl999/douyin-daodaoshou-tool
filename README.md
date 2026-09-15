@@ -255,10 +255,10 @@ python animated_caption_draft.py --draft-name preview --input copy.txt --plan-on
 
 ## 整片速度
 
-**默认 1.5 倍速。** 一个数管全片：`.env` 里的 `VIDEO_SPEED`，或者临时用 `--speed`。
+**默认 1.2 倍速。** 一个数管全片：`.env` 里的 `VIDEO_SPEED`，或者临时用 `--speed`。
 
 ```powershell
-python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 1.2
+python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 1.5
 ```
 
 1.0 是基准 —— `.env` 里所有以秒计的设置、代码里所有时长常量，写的都是 1.0
@@ -268,17 +268,17 @@ python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 
 （`ARK_TTS_SPEECH_RATE`）是做不到「片子变快」的：声音先跑完，画面还按原来的
 长度杵着，运镜还在慢慢爬 —— 看起来像配音没对上，不像片子变快了。
 
-1.5 倍速下具体发生了什么：
+1.2 倍速下具体发生了什么：
 
 | | 怎么变 |
 | --- | --- |
 | 旁白 | **重新用更快的语速念**，不是把音频加速，所以不变调 |
 | 每镜时长 | 量的是真实音频长度，自己就跟着短了，不可能和声音错位 |
 | 字幕 | 和旁白共用同一段时间轴，跟着走 |
-| 字幕入场动画 | ÷1.5 |
-| 片头标题、开场 lead、标题配音等待 | ÷1.5 |
-| 段落气口、结尾留白、BGM 抬降的斜坡 | ÷1.5 |
-| 运镜 | 速度 **×1.5**，镜头 ÷1.5 —— 一乘一除抵消，总幅度不变，就是同一个推镜播快了 |
+| 字幕入场动画 | ÷1.2 |
+| 片头标题、开场 lead、标题配音等待 | ÷1.2 |
+| 段落气口、结尾留白、BGM 抬降的斜坡 | ÷1.2 |
+| 运镜 | 速度 **×1.2**，镜头 ÷1.2 —— 一乘一除抵消，总幅度不变，就是同一个推镜播快了 |
 | BGM、开场音效 | **不变**。它们是音效不是节拍，那一声「咚」加速就不是那一声了 |
 
 规律就一句话：**时长除以速度，每秒的速率乘以速度，以像素计的一律不动。**
@@ -327,7 +327,7 @@ python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | 每镜头承载的中文字数，下限 8。**控制画面节奏的唯一参数**：调小 = 切得更快、图更多、成本更高 |
 | `SPEAK_TITLE` | `1`（**默认开启**） | 开场标题是否也配音。`0` 关掉，时间轴回到标题只画不念的样子 |
 | `TITLE_LEAD_SECONDS` | `0.45` | 标题配音比开场音效晚多久开口（1.0 倍速下） |
-| `VIDEO_SPEED` | `1.5` | **整片速度**，1.0 为基准；配音、画面、运镜、字幕一起变，见上一节 |
+| `VIDEO_SPEED` | `1.2` | **整片速度**，1.0 为基准；配音、画面、运镜、字幕一起变，见上一节 |
 | `KEN_BURNS_RATE` | `0.035` | 运镜速度，每秒走过画面的比例（会乘以 `VIDEO_SPEED`） |
 | `PARAGRAPH_PAUSE_SECONDS` | `0.5` | 段落结尾的气口长度（1.0 倍速下） |
 | `ENDING_HOLD_SECONDS` | `1.8` | 最后一句之后画面再留多久（1.0 倍速下） |
