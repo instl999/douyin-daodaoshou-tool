@@ -274,11 +274,11 @@ The output shows how each line was split, its framing, which lines end a paragra
 
 ## Speed
 
-**1.5× by default.** One number for the whole video: `VIDEO_SPEED` in `.env`,
+**1.2× by default.** One number for the whole video: `VIDEO_SPEED` in `.env`,
 or `--speed` for a single run.
 
 ```powershell
-python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 1.2
+python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 1.5
 ```
 
 1.0 is the baseline. Every duration in `.env`, and every duration constant in
@@ -289,18 +289,18 @@ the narration alone (`ARK_TTS_SPEECH_RATE`) does not produce a faster video: the
 voice finishes early over pictures still holding their old length and a camera
 move still crawling. That reads as a dubbing error, not as pace.
 
-What 1.5× actually does:
+What 1.2× actually does:
 
-| | at 1.5× |
+| | at 1.2× |
 |---|---|
 | narration | **re-read** faster, not resampled, so there is no pitch shift |
 | shot lengths | measured from the audio that came back, so they follow on their own |
 | captions | cut from the same narration spans, so they cannot drift off it |
-| caption intro animation | ÷1.5 |
-| title card, opening lead, the wait before the title is read | ÷1.5 |
-| paragraph beats, ending hold, the music's duck ramp | ÷1.5 |
-| camera move | rate **×1.5** over a shot ÷1.5 — the two cancel, so the push crosses the same ground, just quicker |
-| music and the opening cue | **unchanged**. They are cues, not a clock, and the stinger played 1.5× is a different sound |
+| caption intro animation | ÷1.2 |
+| title card, opening lead, the wait before the title is read | ÷1.2 |
+| paragraph beats, ending hold, the music's duck ramp | ÷1.2 |
+| camera move | rate **×1.2** over a shot ÷1.2 — the two cancel, so the push crosses the same ground, just quicker |
+| music and the opening cue | **unchanged**. They are cues, not a clock, and the stinger played 1.2× is a different sound |
 
 The rule is one line: **a duration divides by speed, a per-second rate
 multiplies by it, and anything measured in pixels does not move.**
@@ -353,7 +353,7 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. **The only pacing control**: lower means faster cuts, more images, higher cost |
 | `SPEAK_TITLE` | `1` (**on by default**) | Whether the opening title is read aloud. `0` turns it off and the title is drawn but never spoken |
 | `TITLE_LEAD_SECONDS` | `0.45` | How long after the opening cue the title's voice starts (at 1.0×) |
-| `VIDEO_SPEED` | `1.5` | **Global speed**, 1.0 is the baseline; narration, picture, camera and captions move together — see above |
+| `VIDEO_SPEED` | `1.2` | **Global speed**, 1.0 is the baseline; narration, picture, camera and captions move together — see above |
 | `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second (multiplied by `VIDEO_SPEED`) |
 | `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph (at 1.0×) |
 | `ENDING_HOLD_SECONDS` | `1.8` | How long the last picture holds (at 1.0×) |

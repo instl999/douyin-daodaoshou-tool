@@ -719,11 +719,17 @@ def test_a_title_with_no_letters_has_no_language_to_disagree_with():
 # thing that catches that wherever it happens.
 
 
-def test_the_default_speed_is_1_5_and_the_baseline_is_1_0():
-    assert acd.DEFAULT_VIDEO_SPEED == 1.5
+def test_the_default_speed_is_1_2_and_the_baseline_is_1_0():
+    """An unset speed is the default, not the baseline.
+
+    The two are different numbers on purpose: 1.0 is what every duration in
+    .env is written at, and the default is what a video is built at when
+    nobody says otherwise.
+    """
+    assert acd.DEFAULT_VIDEO_SPEED == 1.2
     assert acd.BASELINE_VIDEO_SPEED == 1.0
-    assert acd.validate_speed(None) == 1.5
-    assert acd.validate_speed("") == 1.5
+    assert acd.validate_speed(None) == 1.2
+    assert acd.validate_speed("") == 1.2
 
 
 def test_a_speed_outside_what_the_voice_can_read_is_refused():
