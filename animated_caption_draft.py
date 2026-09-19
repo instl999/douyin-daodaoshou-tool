@@ -205,18 +205,21 @@ STYLE_PRESETS: dict[str, StylePreset] = {
     "midnight": StylePreset(
         label="深蓝白描",
         prompt=(
-            "Single-colour white line illustration on a flat deep midnight-blue ground, the whole panel one "
-            "continuous pen drawing: every figure, building and object rendered only as clean white contour "
-            "lines of even weight, volume and shadow built from fine parallel hatching and cross-hatching like "
-            "a steel engraving, no filled colour areas and no grey wash, the navy itself reading as shadow. "
-            "Semi-realistic adults with confident anatomy, simple strongly readable silhouettes and clear body "
-            "language, faces drawn in few lines and barely shaded. One subject, held large and central, with "
-            "wide empty navy around it and only a horizon or two suggested walls for depth. Exactly one or two "
-            "elements carry a flat saturated spot colour -- gold, crimson, amber or magenta -- and everything "
-            "else stays white on navy; a soft glow only where there is a light source. Even fine grain across "
-            "the whole panel. Editorial, symbolic, calm. "
-            "Not photorealistic, no 3D render, no full-colour painting, no watercolour, no black outlines, "
-            "no pale or white background, 16:9"
+            "Single-colour white line illustration on a flat deep midnight-blue ground, drawn with one pen but not one "
+            "line weight: the subject carries a confident heavy contour and almost all of the detail, supporting "
+            "objects are drawn thinner and plainer, and the background is the lightest and sparsest line in the "
+            "picture, so weight alone says what matters. Volume and shadow built from fine parallel hatching and "
+            "cross-hatching like a steel engraving, concentrated on and immediately around the subject and thinning to "
+            "nothing further out; no filled colour areas and no grey wash, the bare navy itself reading as shadow. "
+            "Large areas of the panel left as unbroken navy with no line in them at all - the drawing must not run "
+            "edge to edge. Semi-realistic adults with confident anatomy, simple strongly readable silhouettes and "
+            "clear body language, faces drawn in few lines and barely shaded. One subject, held large and central, "
+            "with wide empty navy around it and only a horizon or two suggested walls for depth. Exactly one or two "
+            "elements carry a flat saturated spot colour -- gold, crimson, amber or magenta -- and it goes on the "
+            "subject or on the one thing the sentence turns on, never on scenery; everything else stays white on navy, "
+            "with a soft glow only where there is a light source. Even fine grain across the whole panel. Editorial, "
+            "symbolic, calm. Not photorealistic, no 3D render, no full-colour painting, no watercolour, no black "
+            "outlines, no pale or white background, no busy all-over line texture, no uniform line weight, 16:9"
         ),
         medium="a white line drawing on a deep midnight-blue ground",
         avoid="photography, 3D rendering, full-colour painting, or a pale background",
@@ -389,21 +392,85 @@ DEFAULT_STYLES_FILENAME = "styles.json"
 # Framing is per scene, not part of the art direction: thirty medium shots in a
 # row is the fastest way to make a video feel monotonous, however good the
 # style is.
+@dataclass(frozen=True)
+class Framing:
+    """One shot size: where the camera sits, and how much may be in the frame.
+
+    The element budget and the subject's size live here rather than in a
+    second dictionary keyed the same way. Two tables of the same shot sizes
+    are two tables that disagree the first time one is added to.
+    """
+
+    # Where the camera is, in the words the image model is given.
+    brief: str
+    # Supporting elements allowed besides the subject. A wide shot is a place
+    # and can carry a few; a close-up is a face and can carry almost nothing.
+    # The number is a cap given to both the director and the image model, so
+    # the brief cannot ask for more than the picture is allowed to draw.
+    elements: int
+    # How much of the frame height the subject fills. Written as a fraction on
+    # purpose: "large" and "small" are what produced frames where the subject
+    # and a background chair were drawn the same size.
+    subject_height: str
+
+
 SHOT_SIZES = {
-    "wide": (
-        "Wide establishing shot: the figures are small in the frame, the whole room or street is visible around "
-        "them, generous headroom, the setting doing as much work as the people."
+    "wide": Framing(
+        brief=(
+            "Wide establishing shot: the whole room or street is visible, generous headroom, the setting doing as "
+            "much work as the people, but one figure or object still clearly leads the frame."
+        ),
+        elements=4,
+        subject_height="at about a third of the frame height",
     ),
-    "medium": (
-        "Medium shot from roughly the waist up: one or two figures fill the middle of the frame, enough background "
-        "to read the place but not more."
+    "medium": Framing(
+        brief=(
+            "Medium shot from roughly the waist up: the subject fills the middle of the frame, enough background "
+            "to read the place and no more."
+        ),
+        elements=2,
+        subject_height="at about two thirds of the frame height",
     ),
-    "close": (
-        "Close-up: the face and shoulders fill the frame, the expression is the subject, the background reduced to "
-        "a few simple shapes well out of focus of attention."
+    "close": Framing(
+        brief=(
+            "Close-up: the face and shoulders fill the frame, the expression is the subject, the background "
+            "reduced to two or three simple shapes with no detail of their own."
+        ),
+        elements=1,
+        subject_height="filling at least three quarters of the frame height",
     ),
 }
 DEFAULT_SHOT_SIZE = "medium"
+
+# What every frame has to do, whichever of the nine styles is drawing it.
+#
+# Composition is deliberately NOT in the style presets. A preset says what
+# medium a picture is in; this says where the eye goes, and the same answer
+# has to hold in all of them. It was in neither, and the usage block below
+# used to argue against it in as many words - "do not visually overemphasize
+# one incidental detail" is an instruction to flatten the frame, and flat is
+# what came back: every element at one size, one weight and one level of
+# detail, nothing to land on, and on a phone that reads as texture rather
+# than as a picture.
+COMPOSITION = (
+    "Composition. The frame has exactly one subject and it is {subject}, drawn {height}: the largest thing in the "
+    "picture, the sharpest, the most detailed, and the one with the most contrast against what is behind it, placed "
+    "either dead centre or on a rule-of-thirds intersection. Everything else is support and has to look subordinate "
+    "- smaller, flatter, fewer marks, less contrast - and nothing may overlap or crowd the subject's outline. "
+    "The subject has to stay identifiable with the whole frame an inch wide, so its silhouette must read as a shape "
+    "on its own, separated from the background by tone and not by an outline alone. "
+    "Leave at least a third of the frame as quiet, near-empty ground: empty space is what makes a subject look "
+    "chosen rather than cropped, and a frame filled edge to edge has no subject at all. "
+    "One moment, one place, one continuous space - never a collage, a split screen, a before-and-after pair, a grid "
+    "of panels, an inset, or a row of icons. "
+    "At most {elements} besides the subject; if the sentence names more, draw the ones it turns on and leave "
+    "the rest out."
+)
+
+# What the subject is called when the director did not name one - an older
+# manifest, or a model that skipped the field. The rest of the block still
+# applies: an unnamed subject is still one subject.
+DEFAULT_SUBJECT = "the person or thing this sentence is about"
 
 MAX_COPY_CHARACTERS = 1800
 DEFAULT_SCENE_CHARACTERS = 22
@@ -412,7 +479,14 @@ DEFAULT_IMAGE_CONCURRENCY = 3
 MAX_IMAGE_CONCURRENCY = 8
 # 6 added `speed`: a manifest without one was written before the global speed
 # existed, so its narration was read at the baseline.
-MANIFEST_VERSION = 6
+# 7 added `moods`: the director's reading of the copy, which the music is
+# chosen from. A manifest without one falls back to reading the copy itself,
+# so an older run still gets a bed rather than an error.
+# 8 added each scene's `subject`: the one thing its frame is about. A scene
+# without one still composes - the subject is named generically - but the
+# picture is only as focused as the description it was given, so a resume
+# from v7 keeps the flatter images it already paid for.
+MANIFEST_VERSION = 8
 
 NARRATION_SUBTITLE_TRACK = "narration_subtitles"
 TITLE_OVERLAY_TRACK = "title_overlay"
@@ -578,6 +652,11 @@ class Character:
 class Scene:
     text: str
     image_prompt: str
+    # The one thing the frame is about, named by the director as a thing that
+    # can be drawn. It is what COMPOSITION builds its hierarchy around, and
+    # asking for it separately is what stops the image prompt from being a
+    # list of everything in the sentence.
+    subject: str = ""
     shot_size: str = DEFAULT_SHOT_SIZE
     pause_after: bool = False
     cast: list[str] = field(default_factory=list)
@@ -586,8 +665,8 @@ class Scene:
     duration_us: int | None = None
 
 
-SCENE_FIELDS = ("text", "image_prompt", "shot_size", "pause_after", "cast",
-                "audio_path", "image_path", "duration_us")
+SCENE_FIELDS = ("text", "image_prompt", "subject", "shot_size", "pause_after",
+                "cast", "audio_path", "image_path", "duration_us")
 
 
 @dataclass
@@ -979,6 +1058,261 @@ def subtitle_baseline_y(base_y: float, lines: int, size: float, em_px: float) ->
     return clamp_y(base_y + (lines - 1) * line_height / 2)
 
 
+# ------------------------------------------------------------------ bgm ----
+
+DEFAULT_BGM_LIBRARY = "assets/bgm"
+BGM_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
+
+# Both levels as linear gain, and both between 20 and 25 dB under the voice.
+# That band is the whole setting: below it the bed stops doing anything, above
+# it the music is a second thing to listen to while someone is talking.
+DEFAULT_BGM_VOLUME = 0.056          # -25 dB, under speech
+DEFAULT_BGM_LIFT_VOLUME = 0.10      # -20 dB, in the gaps
+
+# The vocabulary the director labels the copy with, and the same words the
+# library's filenames are tagged with. Keeping the two lists literally the
+# same strings is what removes the need for a synonym table: a file called
+# 紧张Kill Drill.mp3 is picked for a script the director called 紧张.
+BGM_MOODS = ("紧张", "危机", "焦虑", "疑问", "疑惑", "失落", "转机",
+             "升华", "欢乐", "舒缓", "平淡", "解释", "讲解", "措施", "解决")
+
+# Tags that say WHERE in a video a track belongs rather than how it feels.
+# One track is laid under the whole video here, so a cue written for an
+# opening or an ending makes a worse bed than an untagged one even when its
+# mood fits. Ranked down, not excluded: a library may hold nothing else.
+BGM_POSITIONS = ("开头", "结尾", "后期", "提出")
+
+# What the copy itself says, for when the director labels nothing. This is the
+# fallback that keeps a run working when the model returns no mood at all - a
+# resume from an older manifest, an older model, a stricter JSON mode - and
+# not a second opinion on the mood the model did return. Deliberately coarse:
+# common function words are left out, because a word that appears in every
+# script cannot tell two scripts apart.
+BGM_MOOD_KEYWORDS = {
+    "紧张": ("压力", "逼", "冲突", "争", "吵", "来不及", "追", "抢", "拼"),
+    "危机": ("危机", "崩", "破产", "失业", "债", "亏", "塌", "灾"),
+    "焦虑": ("焦虑", "担心", "害怕", "恐惧", "不安", "睡不着", "慌"),
+    "疑问": ("为什么", "难道", "到底", "究竟", "怎么会", "是不是"),
+    "疑惑": ("疑惑", "困惑", "想不通", "看不懂", "奇怪"),
+    "失落": ("失落", "难过", "孤独", "委屈", "后悔", "遗憾", "眼泪", "哭"),
+    "转机": ("转机", "转折", "没想到", "突然", "直到"),
+    "升华": ("终于", "明白", "释然", "放下", "成长", "从此", "值得"),
+    "欢乐": ("开心", "快乐", "笑", "惊喜", "轻松", "有趣"),
+    "舒缓": ("慢慢", "安静", "平静", "温柔", "陪"),
+    "平淡": ("日常", "普通", "平常", "每天"),
+    "解释": ("其实", "因为", "所以", "原因", "本质"),
+    "讲解": ("第一", "第二", "首先", "其次", "也就是说"),
+    "措施": ("建议", "办法", "方法", "怎么办", "试着"),
+    "解决": ("解决", "改善", "行动"),
+}
+
+# How many moods are carried into the pick. Past three the weighting below has
+# them contributing a quarter of a point against a full one, which is noise.
+BGM_MOOD_LIMIT = 3
+
+
+def bgm_tag(path: Path) -> str:
+    """The Chinese label a library file carries, from the front of its name.
+
+    The convention is the one the tracks already arrive with - the mood
+    written in Chinese before the title, as in `紧张Kill Drill - Robert
+    Ruth.mp3`. Everything up to the first non-Chinese character is the tag,
+    which is what keeps a Chinese artist name at the END of a filename from
+    being read as one.
+    """
+    stem = path.stem
+    end = 0
+    while end < len(stem) and "一" <= stem[end] <= "鿿":
+        end += 1
+    return stem[:end]
+
+
+def bgm_library(directory: Path | None) -> list[tuple[Path, str]]:
+    """Every playable file in the library, with its tag, sorted by name.
+
+    Sorted so that two tracks scoring the same are not picked between by the
+    order the filesystem happened to list them in: the same copy has to choose
+    the same music on a re-run, or a --resume quietly rescores the video.
+    """
+    if directory is None or not directory.is_dir():
+        return []
+    return sorted(
+        ((path, bgm_tag(path)) for path in directory.iterdir()
+         if path.is_file() and path.suffix.lower() in BGM_SUFFIXES),
+        key=lambda entry: entry[0].name,
+    )
+
+
+def copy_moods(copy: str, limit: int = BGM_MOOD_LIMIT) -> list[str]:
+    """Moods read straight off the copy, for when the director labels none."""
+    counted = [
+        (sum(copy.count(word) for word in words), -index, mood)
+        for index, (mood, words) in enumerate(BGM_MOOD_KEYWORDS.items())
+    ]
+    ranked = sorted(counted, reverse=True)
+    return [mood for score, _, mood in ranked if score][:limit]
+
+
+def score_bgm(tag: str, moods: list[str]) -> float:
+    """How well one library tag answers a ranked list of moods."""
+    if not tag:
+        return 0.0
+    score = 0.0
+    for rank, mood in enumerate(moods):
+        if mood and mood in tag:
+            # Earlier moods weigh more, and a later one still counts: a track
+            # tagged 紧张危机 should beat a plain 紧张 for a script that is both.
+            score += 1.0 / (rank + 1)
+    if score and any(position in tag for position in BGM_POSITIONS):
+        score -= 0.25
+    return score
+
+
+def pick_bgm(entries: list[tuple[Path, str]], moods: list[str]) -> Path | None:
+    """The best bed in the library for a script with these moods, if any fits.
+
+    None when nothing scores. A library holding no track for this script is a
+    video with no music, which is a better answer than an arbitrary track
+    under three minutes of narration - the wrong music is more distracting
+    than none, and it is the one choice here nobody would think to check.
+    """
+    chosen, best = None, 0.0
+    for path, tag in entries:
+        score = score_bgm(tag, moods)
+        if score > best:
+            chosen, best = path, score
+    return chosen
+
+
+def resolve_bgm(cfg: Config, copy: str, moods: list[str]) -> tuple[Path | None, str]:
+    """Which music goes under this video, and one line saying why that one.
+
+    BGM_PATH is somebody naming a track and wins outright. Otherwise the
+    library is matched against the moods the director labelled the copy with,
+    falling back to the words the copy itself uses.
+    """
+    if cfg.bgm_path is not None:
+        return cfg.bgm_path, "BGM_PATH"
+    entries = bgm_library(cfg.bgm_library)
+    if not entries:
+        return None, f"no music: {cfg.bgm_library or DEFAULT_BGM_LIBRARY} holds no audio"
+    wanted = [mood for mood in moods if mood] or copy_moods(copy)
+    if not wanted:
+        return None, "no music: nothing in the copy said how it should feel"
+    chosen = pick_bgm(entries, wanted)
+    if chosen is None:
+        return None, f"no music: no track is tagged {'/'.join(wanted)}"
+    return chosen, f"{'/'.join(wanted)} -> {chosen.name}"
+
+
+# -------------------------------------------------------- jianying paths ----
+
+# Where an installed editor keeps its user data, and the folder holding drafts
+# inside it. The mainland build is checked before the international one: a
+# machine carrying both is a 剪映 user who also has CapCut, not the reverse.
+JIANYING_APP_DIRS = ("JianyingPro", "CapCut")
+JIANYING_DRAFT_LEAF = "com.lveditor.draft"
+JIANYING_SETTINGS = ("User Data", "Config", "globalSetting")
+JIANYING_DEFAULT_DRAFTS = ("User Data", "Projects", JIANYING_DRAFT_LEAF)
+
+
+def jianying_app_roots() -> list[Path]:
+    """Every directory an installed 剪映 / CapCut keeps its user data in."""
+    bases: list[Path] = []
+    for variable in ("LOCALAPPDATA", "APPDATA"):
+        value = os.getenv(variable, "").strip()
+        if value:
+            bases.append(Path(value))
+    home = Path.home()
+    # Windows is the supported platform. The macOS location costs one stat
+    # call and turns "nothing was found" into "it just worked" for anyone
+    # running this there anyway.
+    bases += [home / "AppData" / "Local", home / "Movies"]
+    roots: list[Path] = []
+    for base in bases:
+        for app in JIANYING_APP_DIRS:
+            candidate = base / app
+            if candidate.is_dir() and candidate not in roots:
+                roots.append(candidate)
+    return roots
+
+
+def relocated_draft_dir(app_root: Path) -> Path | None:
+    """The drafts folder the user moved to, as Jianying itself recorded it.
+
+    Jianying can keep its draft library on another disk, and a machine that
+    has moved it still has the default folder sitting there empty - so a probe
+    that knows only the default finds a directory, calls it a hit, and writes
+    every draft somewhere the editor no longer reads. Nothing would look
+    wrong: the run succeeds and the draft list stays empty.
+
+    The chosen path is in Jianying's own settings file. The key holding it has
+    been renamed between versions, so rather than bet on one name, any string
+    value naming a directory that exists is accepted, keys mentioning drafts
+    first.
+    """
+    settings = app_root.joinpath(*JIANYING_SETTINGS)
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    named = [(key, value) for key, value in data.items()
+             if isinstance(value, str) and value.strip()]
+    named.sort(key=lambda pair: "draft" not in pair[0].lower())
+    for _key, value in named:
+        candidate = Path(value.strip()).expanduser()
+        # Settings hold the library root; drafts live in the bundle-id folder
+        # under it, and some versions record that folder directly.
+        if candidate.name != JIANYING_DRAFT_LEAF:
+            candidate = candidate / JIANYING_DRAFT_LEAF
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def detect_draft_dir() -> Path | None:
+    """Jianying's drafts folder on this machine, or None if there is none."""
+    for root in jianying_app_roots():
+        moved = relocated_draft_dir(root)
+        if moved is not None:
+            return moved
+        default = root.joinpath(*JIANYING_DEFAULT_DRAFTS)
+        if default.is_dir():
+            return default
+    return None
+
+
+def resolve_draft_dir() -> tuple[Path, str]:
+    """Where finished drafts are written, and how that was decided.
+
+    JIAN_YING_DRAFT_DIR used to be required, and it was the setting every new
+    user got wrong first: the path is four directories deep and ends in a
+    bundle id. The editor installs itself in one of two known places, so the
+    usual answer can simply be looked up, and the drafts land where Jianying
+    already reads them instead of in a folder to be copied by hand.
+
+    An explicit setting still wins, and is still checked. A typo there is a
+    mistake to report rather than a reason to quietly use somewhere else: the
+    whole point of setting it is that this machine is the unusual one.
+    """
+    configured = os.getenv("JIAN_YING_DRAFT_DIR", "").strip()
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_dir():
+            raise RuntimeError(f"JIAN_YING_DRAFT_DIR does not exist: {path}")
+        return path, "JIAN_YING_DRAFT_DIR"
+    found = detect_draft_dir()
+    if found is not None:
+        return found, "detected"
+    raise RuntimeError(
+        "Jianying's drafts folder was not found on this machine. In 剪映专业版, "
+        "全局设置 -> 草稿位置 shows where it keeps drafts; put that path in "
+        "JIAN_YING_DRAFT_DIR in .env."
+    )
+
+
 # ----------------------------------------------------------------- config ----
 
 @dataclass
@@ -989,7 +1323,7 @@ class Config:
     no longer drift apart.
 
     **Every duration here is already on the video's clock.** .env is written at
-    the 1.0x baseline - ENDING_HOLD_SECONDS=1.8 means 1.8 s in a video running
+    the 1.0x baseline - PARAGRAPH_PAUSE_SECONDS=0.5 means 0.5 s in a video running
     at natural pace - and `load` divides by `speed` as it parses, which is the
     same moment it turns every other setting into a runtime value. Doing it
     here rather than at each use is what makes the global speed safe to extend:
@@ -1032,12 +1366,14 @@ class Config:
 
     # Jianying + assets
     draft_dir: Path
+    draft_dir_source: str
     opening_sound_path: Path
     opening_sound_volume: float
     opening_lead_us: int
     speak_title: bool
     title_lead_us: int
     bgm_path: Path | None
+    bgm_library: Path | None
     bgm_volume: float
     bgm_lift_volume: float
     bgm_ramp_us: int
@@ -1104,9 +1440,7 @@ class Config:
             options = ", ".join(sorted(TITLE_PRESETS))
             raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
 
-        draft_dir = Path(required("JIAN_YING_DRAFT_DIR")).expanduser()
-        if not draft_dir.is_dir():
-            raise RuntimeError(f"JIAN_YING_DRAFT_DIR does not exist: {draft_dir}")
+        draft_dir, draft_dir_source = resolve_draft_dir()
 
         seed_raw = os.getenv("ARK_IMAGE_SEED", "").strip()
         price_raw = os.getenv("ARK_IMAGE_CNY_PER_IMAGE", "").strip()
@@ -1151,6 +1485,7 @@ class Config:
             tts_concurrency=bounded_env_int("TTS_CONCURRENCY", 3, 1, MAX_IMAGE_CONCURRENCY),
 
             draft_dir=draft_dir,
+            draft_dir_source=draft_dir_source,
             # Required. The cue is a specific sound these videos are known
             # by; it ships with the repo, and nothing synthesises a stand-in
             # for it, so a missing one is a broken install rather than a
@@ -1173,17 +1508,30 @@ class Config:
                       * 1_000_000),
                 speed,
             ),
-            bgm_path=_optional_asset("BGM_PATH", {".mp3", ".wav"}),
-            bgm_volume=bounded_env_float("BGM_VOLUME", 0.10, 0.0, 1.0),
-            bgm_lift_volume=bounded_env_float("BGM_LIFT_VOLUME", 0.20, 0.0, 1.0),
+            # An explicit track, which wins over the library when set.
+            bgm_path=_optional_asset("BGM_PATH", BGM_SUFFIXES),
+            bgm_library=_optional_dir("BGM_LIBRARY", DEFAULT_BGM_LIBRARY),
+            # Both levels are quoted as linear gain and both now sit in the
+            # 20-25 dB below the voice that a bed under narration wants. The
+            # lift used to be 0.20, which is 14 dB down: audibly music rather
+            # than atmosphere, and the one thing in the mix loud enough to
+            # compete with the line that follows it.
+            bgm_volume=bounded_env_float("BGM_VOLUME", DEFAULT_BGM_VOLUME, 0.0, 1.0),
+            bgm_lift_volume=bounded_env_float("BGM_LIFT_VOLUME", DEFAULT_BGM_LIFT_VOLUME, 0.0, 1.0),
             bgm_ramp_us=paced_us(
                 round(bounded_env_float("BGM_RAMP_SECONDS", 0.25, 0.05, 2.0) * 1_000_000),
                 speed),
             paragraph_pause_us=paced_us(
                 round(bounded_env_float("PARAGRAPH_PAUSE_SECONDS", 0.5, 0.0, 3.0) * 1_000_000),
                 speed),
+            # Zero: the video ends on the last syllable of the last
+            # subtitle. It used to hold 1.8s on the closing picture, which
+            # reads as the file failing to stop - a feed autoplays the next
+            # video over it, and an export carries nearly two seconds of dead
+            # air at the end of every upload. Set it if a still close is
+            # wanted; nothing else in the timeline depends on it being there.
             ending_hold_us=paced_us(
-                round(bounded_env_float("ENDING_HOLD_SECONDS", 1.8, 0.0, 10.0) * 1_000_000),
+                round(bounded_env_float("ENDING_HOLD_SECONDS", 0.0, 0.0, 10.0) * 1_000_000),
                 speed),
             watermark_path=_optional_asset("WATERMARK_PATH", {".png", ".jpg", ".jpeg"}),
             color_grade=env_value("COLOR_GRADE", style.grade),
@@ -1271,8 +1619,44 @@ def title_language_differs(title: str, scenes: list[Scene]) -> bool:
     return abs(_cjk_share(title) - _cjk_share(spoken)) > 0.5
 
 
-def title_already_narrated(title: str, scenes: list[Scene]) -> bool:
-    """True when the copy's own narration already opens with the title.
+# How many of the copy's opening sentences the title is checked against.
+# Two, because sentence one is usually a hook and sentence two is the thesis
+# the title was lifted from, and a headline repeated as the second thing said
+# is heard as the same stutter as one repeated as the first.
+TITLE_ECHO_SCENES = 2
+
+# A restatement shares most of the title's characters AND a fair share of its
+# character pairs. Characters alone match any two Chinese sentences built out
+# of the same common words; pairs alone miss a title whose clause the copy
+# reorders, which is the usual way an opening line restates a headline.
+TITLE_ECHO_CHARACTERS = 0.8
+TITLE_ECHO_PAIRS = 0.5
+
+# Below this, a title is too short for those ratios to mean anything: two
+# characters are wholly contained in half the sentences ever written.
+TITLE_ECHO_MIN_LENGTH = 4
+
+# Dropped before comparing. The director reflows punctuation and spacing as it
+# splits the copy, and a stutter is a stutter whether or not a comma survived.
+TITLE_ECHO_NOISE = set(
+    TITLE_TRAILING_PUNCTUATION + "\"'“”‘’()（）《》〈〉[]【】"
+)
+
+
+def _echo_key(text: str) -> str:
+    """`text` reduced to the characters that carry its meaning."""
+    return "".join(character for character in text
+                   if not character.isspace()
+                   and character not in TITLE_ECHO_NOISE)
+
+
+def _character_pairs(text: str) -> set[str]:
+    return {text[index:index + 2] for index in range(len(text) - 1)}
+
+
+def title_already_narrated(title: str, scenes: list[Scene],
+                           lookahead: int = TITLE_ECHO_SCENES) -> bool:
+    """True when the copy's opening already says what the title says.
 
     --title defaults to the first line of the copy, and that line is part of
     the copy the scenes narrate. Speaking the title as well then says the same
@@ -1280,18 +1664,37 @@ def title_already_narrated(title: str, scenes: list[Scene]) -> bool:
     again. That is the common case, not the corner case: it happens on every
     run that does not pass --title.
 
-    Compared on characters alone. The splitter is free to reflow punctuation
-    and whitespace between the copy and a scene, and a stutter is a stutter
-    whether or not a comma survived.
+    Matched on meaning, not on characters, and across the first `lookahead`
+    sentences rather than only the first. An exact prefix is merely the
+    tidiest way a copy repeats itself. The director rewrites as it splits, so
+    the same headline comes back as a reordered clause - a prefix of nothing,
+    and still the same sentence twice to anyone watching. It also lands in
+    sentence two as often as in sentence one, because sentence one is a hook.
+
+    The ratios are deliberately strict. Skipping the voice on a title the copy
+    never says loses the opening line entirely, which is worse than the
+    stutter this is here to prevent, so a near miss is left to be spoken.
     """
     if not scenes:
         return False
-    strip = re.compile(r"[\s　]+")
-    wanted = strip.sub("", title)
+    wanted = _echo_key(title)
     if not wanted:
         return False
-    opening = strip.sub("", scenes[0].text or "")
-    return opening.startswith(wanted) or wanted.startswith(opening)
+    opening = _echo_key("".join(scene.text or ""
+                                for scene in scenes[:max(1, lookahead)]))
+    if not opening:
+        return False
+    # Said outright, either way round: the title is in the copy, or the copy
+    # opens on a fragment of it. No length guard here - a quotation is a
+    # quotation however short.
+    if wanted in opening or opening in wanted:
+        return True
+    if len(wanted) < TITLE_ECHO_MIN_LENGTH:
+        return False
+    shared = sum(character in opening for character in wanted) / len(wanted)
+    pairs = _character_pairs(wanted)
+    overlap = (len(pairs & _character_pairs(opening)) / len(pairs)) if pairs else 0.0
+    return shared >= TITLE_ECHO_CHARACTERS and overlap >= TITLE_ECHO_PAIRS
 
 
 def _require_asset(setting: str, default: str, suffixes: set[str]) -> Path:
@@ -1328,6 +1731,23 @@ def _optional_asset(setting: str, suffixes: set[str]) -> Path | None:
     return _require_asset(setting, raw, suffixes)
 
 
+def _optional_dir(setting: str, default: str) -> Path | None:
+    """A folder of media, which may simply not be there.
+
+    Missing is not an error even when the setting names it: the default is a
+    folder the repository does not ship, and a run with no music is a run with
+    no music. A path that IS set and is not a directory is a typo worth
+    reporting, though - the alternative is a silently music-free video.
+    """
+    raw = os.getenv(setting, "").strip()
+    path = resolve_asset_path(raw or default)
+    if path.is_dir():
+        return path
+    if raw:
+        raise RuntimeError(f"{setting} is not a directory: {path}")
+    return None
+
+
 def describe_configuration(cfg: Config) -> None:
     """Print the settings whose resolved value is easy to get wrong."""
     subtitle_px = round(cfg.subtitle_y * CANVAS_HALF_HEIGHT)
@@ -1359,16 +1779,34 @@ def describe_configuration(cfg: Config) -> None:
           f"copy starts at {cfg.opening_lead_us / 1e6:.2f}s or later")
     print(f"Title voice: {'on' if cfg.speak_title else 'off'}"
           + (f", {cfg.title_lead_us / 1e6:.2f}s after the cue" if cfg.speak_title else ""))
+    print(f"Drafts go to: {cfg.draft_dir}"
+          + ("  (found automatically)" if cfg.draft_dir_source == "detected"
+             else "  (JIAN_YING_DRAFT_DIR)"))
+    if cfg.bgm_path is not None:
+        print(f"BGM: {cfg.bgm_path}  (BGM_PATH; the library is not consulted)")
+    else:
+        entries = bgm_library(cfg.bgm_library)
+        where = cfg.bgm_library or resolve_asset_path(DEFAULT_BGM_LIBRARY)
+        tagged = sum(1 for _path, tag in entries if tag)
+        print(f"BGM library: {where}"
+              + (f"  {len(entries)} track(s), {tagged} tagged" if entries
+                 else "  (not found - the video will have no music)"))
+        if entries and not tagged:
+            print("  ! no filename starts with a Chinese mood label, so nothing "
+                  "can be matched; rename them like 紧张Kill Drill.mp3")
     if cfg.bgm_volume > 0:
         lift = max(cfg.bgm_volume, cfg.bgm_lift_volume)
-        print(f"BGM volume: {cfg.bgm_volume:.2f} under speech ({20 * math.log10(cfg.bgm_volume):.1f} dB), "
-              f"{lift:.2f} in the gaps")
+        print(f"BGM volume: {cfg.bgm_volume:.3f} under speech ({20 * math.log10(cfg.bgm_volume):.1f} dB), "
+              f"{lift:.3f} in the gaps ({20 * math.log10(lift):.1f} dB)")
     else:
         print("BGM volume: muted")
     print(f"Pauses:     {cfg.paragraph_pause_us / 1e6:.2f}s after a paragraph, "
-          f"{cfg.ending_hold_us / 1e6:.2f}s held at the end")
+          + (f"{cfg.ending_hold_us / 1e6:.2f}s held at the end"
+             if cfg.ending_hold_us
+             else "ending on the last subtitle"))
     print(f"Colour grade: {cfg.color_grade or 'none'} at {cfg.color_grade_intensity:.0f}%")
     for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR", "VIDEO_SPEED",
+                 "BGM_PATH", "BGM_LIBRARY", "ENDING_HOLD_SECONDS", "SPEAK_TITLE",
                  "NARRATION_SUBTITLE_Y", "NARRATION_SUBTITLE_SIZE", "SUBTITLE_FONT",
                  "TITLE_STYLE", "TITLE_FONT", "TITLE_SIZE", "COLOR_GRADE",
                  "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT", STYLES_FILE_SETTING):
@@ -1443,13 +1881,19 @@ def compose_image_prompt(cfg: Config, scene: Scene, characters: list[Character])
     framing = SHOT_SIZES.get(scene.shot_size, SHOT_SIZES[DEFAULT_SHOT_SIZE])
     medium = getattr(cfg, "style", None)
     medium = medium.medium if medium else DEFAULT_STYLE_MEDIUM
+    composition = COMPOSITION.format(
+        subject=(scene.subject or "").strip().rstrip(".") or DEFAULT_SUBJECT,
+        height=framing.subject_height,
+        elements=(f"{framing.elements} supporting elements" if framing.elements != 1
+                  else "one supporting element"),
+    )
     return (
         f"{scene.image_prompt.strip().rstrip('.')}. Usage: one 16:9 frame rendered as {medium}, matched directly "
         "to this exact subtitle. "
-        f"{framing} "
+        f"{framing.brief} "
+        f"{composition} "
         f"{cast_block}{style}. Depict the concrete moment, people, action, setting, and emotion described by this subtitle. "
-        "Include only the people, objects, and surroundings needed to communicate the complete subtitle; keep the composition natural "
-        "and narrative, and do not visually overemphasize one incidental detail. Keep all screens, signs, documents, packaging, and "
+        "Keep all screens, signs, documents, packaging, and "
         "interfaces blank. No visible text, letters, digits, punctuation, "
         "logos, watermarks, subtitles, or fake interface copy."
     )
@@ -1489,6 +1933,44 @@ def storyboard_batches(copy: str, batch_size: int = 360) -> list[str]:
     return batches or [copy]
 
 
+# What a frame is allowed to be about, and how it should read to somebody
+# who is not looking for anything.
+#
+# Two failures this is written against, both of them things the model does by
+# default rather than by accident:
+#
+# "One image per sentence" is read as "everything in the sentence, in one
+# image". A sentence naming a person, a place, a time and a feeling came back
+# as four things drawn at the same size. Naming ONE subject as a separate
+# field is what breaks that - a field has to be filled with one answer, where
+# a description can quietly hold four.
+#
+# And an abstract sentence is illustrated with the stock of the idea: a
+# balance, a clock, a maze, a lightbulb, gears, a head full of arrows. Those
+# are the images a model reaches for and close to the last ones a general
+# audience wants to look at. The rule below is that the picture is of people
+# doing things, and the abstraction is carried by what they are doing.
+DIRECTION = (
+    "Frame. Every scene is one picture with one subject, and \"subject\" names it: two to five English words for "
+    "something that can be drawn - a person, an object, a place - such as \"a woman at a kitchen table\" or \"a "
+    "cracked phone screen\". Never an abstraction (\"pressure\", \"regret\", \"the economy\"), never a whole scene, "
+    "never two things joined by \"and\". If the sentence has no subject that can be named as a thing, choose the "
+    "person it happens to. "
+    "Write image_prompt as one sentence of at most 30 words: the subject, the single action it is doing, and the "
+    "few things around it that the sentence actually turns on. It is a description of one picture, not a summary "
+    "of the sentence - leave out anything the picture does not need to show. "
+    "Audience. These are watched on a phone and judged in the first half-second, so take the reading a general "
+    "viewer finds attractive and immediately legible rather than the cleverest one. Prefer a person doing something "
+    "concrete over an object, and an object over a diagram or a metaphor; when the sentence is about how somebody "
+    "feels, the picture is that person's face. Keep poses and expressions ordinary and readable - no theatrical "
+    "gesturing, no crowds, no empty stages. "
+    "Never illustrate an idea with a pile of symbols - scales, clocks, mazes, lightbulbs, brains, gears, arrows, "
+    "question marks, chess pieces, puppet strings - and never put two metaphors in one frame. "
+    "Never describe a collage, a split screen, a before-and-after pair, a grid of panels, an inset or a row of "
+    "icons: one moment, in one place, in one continuous space."
+)
+
+
 def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
                       batch_target: int, batch_maximum: int,
                       known_characters: list[Character]) -> str:
@@ -1521,27 +2003,49 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         f"{cfg.style.medium}. "
         f"Split this part ({batch_number}/{batch_count}) of the copy into about {batch_target} independent subtitle scenes, "
         f"never more than {batch_maximum}. {length_instruction}Preserve the complete meaning and original order. "
-        "One subtitle scene must map to exactly one image. For every scene, write image_prompt as one concise, coherent English "
-        "natural-language description of the image that best matches only that scene's Chinese subtitle. First follow the people, "
-        "objects, action, location, time, mood, and relationship explicitly present in the subtitle. If the subtitle describes a "
-        "concrete event, depict that event literally in a believable everyday setting. If it is abstract, use the simplest human "
-        "situation that communicates the whole sentence without changing its meaning. The scene content should feel true to life, "
-        f"but every frame must remain {cfg.style.medium}, never {cfg.style.avoid}. Do not force a finance theme. "
+        "One subtitle scene must map to exactly one image. "
+        f"{DIRECTION} "
+        "If the subtitle describes a concrete event, depict that event literally in a believable everyday setting. If it is "
+        "abstract, use the simplest human situation that communicates the sentence without changing its meaning. The scene "
+        f"content should feel true to life, but every frame must remain {cfg.style.medium}, never {cfg.style.avoid}. "
+        "Do not force a finance theme. "
         "Never add charts, tables, dashboards, graphs, market arrows, coins, banks, office imagery, or decorative business symbols "
-        "unless that exact subtitle genuinely calls for them. Do not visually magnify an incidental word at the expense of the full "
-        "sentence. Favor a natural human moment and a clear action over abstract icons or infographic composition. Keep screens, "
+        "unless that exact subtitle genuinely calls for them. "
+        # What this used to say was "do not visually magnify an incidental
+        # word at the expense of the full sentence", which is the right worry
+        # and the wrong instruction: read as written it forbids emphasising
+        # anything, and the frames came back with nothing emphasised at all.
+        # The subject is still chosen to carry the sentence - it just has to
+        # be one thing rather than an even spread of five.
+        "The subject has to be what the sentence is actually about, not a passing noun in it: a sentence about a decision "
+        "is not a picture of the desk it was made at. "
+        "Keep screens, "
         "signs, documents, packaging, and interfaces blank; do not request visible text, letters, digits, punctuation, logos, "
         "watermarks, subtitles, speech bubbles, or fake interface copy. "
         f"{cast_instruction}"
         "Set \"cast\" on each scene to the ids of the characters visible in that panel, or [] if nobody recurring appears. "
-        "Set \"shot_size\" to vary the framing the way an editor would, never leaving it on one value for long: "
-        "\"wide\" to open a section, establish a place, or carry a sentence about society or the world at large; "
-        "\"medium\" as the default for describing an event; \"close\" for a feeling, a decision, a turn, or a "
+        "Set \"shot_size\" to vary the framing the way an editor would, never leaving it on one value for long. "
+        "\"wide\" opens a section, establishes a place, or carries a sentence about society or the world at large; "
+        "\"medium\" is the default for describing an event; \"close\" is for a feeling, a decision, a turn, or a "
         "conclusion, where the face is the point. Aim for roughly one wide and one close in every four scenes. "
+        # The cap the picture is actually drawn to, quoted from the same table
+        # the image prompt reads. A brief that asks for five things in a
+        # close-up is a brief the frame has to throw four of away.
+        "Each framing limits what may share the frame: "
+        + "; ".join(f'{name} allows at most {size.elements} besides the subject'
+                    for name, size in SHOT_SIZES.items())
+        + ". "
         "Set \"pause_after\" to true on the scene that ends a paragraph or a complete thought, so the video can "
         "take a breath there; leave it false inside a paragraph. "
+        # The music bed is chosen from this, and it costs nothing: one more
+        # field on a call that is already being made for every batch. Asking
+        # separately would be a second request per video for one word.
+        f"Set \"mood\" to the one or two labels from this list that best describe how this part of the copy "
+        f"feels, most telling first, and use these words exactly: {'、'.join(BGM_MOODS)}. "
         'Return JSON only: {"characters":[{"id":"A","desc":"English description"}],'
-        '"scenes":[{"text":"Chinese scene copy","image_prompt":"English image prompt",'
+        '"mood":["紧张"],'
+        '"scenes":[{"text":"Chinese scene copy","subject":"a woman at a kitchen table",'
+        '"image_prompt":"English image prompt",'
         '"shot_size":"medium","pause_after":false,"cast":["A"]}]}'
     )
 
@@ -1572,10 +2076,37 @@ def scenes_from_payload(data: dict[str, Any]) -> list[Scene]:
         shot_size = shot_size.strip().lower() if isinstance(shot_size, str) else ""
         if shot_size not in SHOT_SIZES:
             shot_size = DEFAULT_SHOT_SIZE
+        # Missing rather than invalid: a scene is usable without one, and
+        # refusing a whole batch over a field the model skipped would throw
+        # away the storyboard it did write. compose_image_prompt names the
+        # subject generically instead.
+        subject = item.get("subject")
+        subject = subject.strip() if isinstance(subject, str) else ""
         scenes.append(Scene(text=text.strip(), image_prompt=image_prompt.strip(),
-                            shot_size=shot_size, pause_after=bool(item.get("pause_after")),
+                            subject=subject, shot_size=shot_size,
+                            pause_after=bool(item.get("pause_after")),
                             cast=cast))
     return scenes
+
+
+def moods_from_payload(data: dict[str, Any]) -> list[str]:
+    """The mood labels the director chose, keeping only ones we know.
+
+    Filtered against BGM_MOODS rather than taken as given: the value is used
+    to match a filename, so a word invented by the model matches nothing and
+    would only push a real label out of the ranking.
+    """
+    raw = data.get("mood")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    moods: list[str] = []
+    for item in raw:
+        mood = str(item).strip()
+        if mood in BGM_MOODS and mood not in moods:
+            moods.append(mood)
+    return moods
 
 
 def characters_from_payload(data: dict[str, Any]) -> list[Character]:
@@ -1589,12 +2120,17 @@ def characters_from_payload(data: dict[str, Any]) -> list[Character]:
     return characters
 
 
-def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character]]:
+def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character], list[str]]:
     target, maximum = scene_limits(cfg.scene_length_mode, cfg.scene_characters, copy)
     batches = storyboard_batches(copy)
     total_characters = max(1, len(re.sub(r"\s+", "", copy)))
     scenes: list[Scene] = []
     characters: list[Character] = []
+    # Counted across batches rather than taken from the first. A batch is a
+    # few hundred characters, so the opening one is the hook and not
+    # necessarily the video; the mood the whole copy keeps returning to is the
+    # one the bed has to sit under for three minutes.
+    mood_counts: dict[str, int] = {}
     report_progress("Storyboard", 0, len(batches))
 
     for batch_number, batch in enumerate(batches, 1):
@@ -1614,6 +2150,10 @@ def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character]]:
             raise RuntimeError(
                 f"Storyboard batch {batch_number} returned {len(batch_scenes)} scenes; the safety limit is {batch_maximum}."
             )
+        for rank, mood in enumerate(moods_from_payload(data)):
+            # First-named counts for more, so a batch that is mostly tense and
+            # a little sad does not average into neither.
+            mood_counts[mood] = mood_counts.get(mood, 0) + (2 if rank == 0 else 1)
         scenes.extend(batch_scenes)
         report_progress("Storyboard", batch_number, len(batches))
 
@@ -1621,7 +2161,9 @@ def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character]]:
         raise RuntimeError("Storyboard model returned no scenes.")
     if len(scenes) > maximum:
         raise RuntimeError(f"Storyboard returned {len(scenes)} scenes; the safety limit for this copy is {maximum}.")
-    return scenes, characters
+    moods = [mood for mood, _ in sorted(
+        mood_counts.items(), key=lambda item: (-item[1], BGM_MOODS.index(item[0])))]
+    return scenes, characters, moods[:BGM_MOOD_LIMIT]
 
 
 def request_storyboard(cfg: Config, prompt: str, batch: str, batch_target: int) -> dict[str, Any]:
@@ -1855,7 +2397,15 @@ def validate_draft_target(cfg: Config, draft_name: str, replace: bool) -> None:
 
 def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool,
                 title: str, title_audio: Path | None = None,
-                opening_sound: Path | None = None) -> Path:
+                opening_sound: Path | None = None,
+                bgm: Path | None = None) -> Path:
+    """Write the draft. `bgm` is the track resolve_bgm settled on.
+
+    Falling back to cfg.bgm_path when it is None is not a second decision:
+    resolve_bgm returns exactly that whenever BGM_PATH is set, so the two
+    cannot disagree, and a caller that has not resolved anything still gets
+    the explicitly configured track.
+    """
     from pyJianYingDraft import (
         AudioMaterial,
         AudioSegment,
@@ -1914,7 +2464,8 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
         draft.append_track(TrackSpec(TrackType.text, title_track_name(index)))
         for index in range(len(title_lines))
     ]
-    bgm_material = AudioMaterial(str(cfg.bgm_path)) if cfg.bgm_path else None
+    bgm_path = bgm or cfg.bgm_path
+    bgm_material = AudioMaterial(str(bgm_path)) if bgm_path else None
     bgm_track = draft.append_track(TrackSpec(TrackType.audio, "BGM")) if bgm_material else None
     grade_track = draft.append_track(TrackSpec(TrackType.filter, COLOR_GRADE_TRACK)) if grade else None
 
@@ -2296,7 +2847,8 @@ def add_bgm(cfg: Config, draft: Any, track: Any, material: Any, total_duration: 
 
 def save_run_state(asset_root: Path, draft_name: str, title: str, copy: str, scenes: list[Scene],
                    characters: list[Character], status: str, failures: list[dict[str, Any]],
-                   speed: float = BASELINE_VIDEO_SPEED) -> None:
+                   speed: float = BASELINE_VIDEO_SPEED,
+                   moods: list[str] | None = None) -> None:
     state = {
         "version": MANIFEST_VERSION,
         "draft_name": draft_name,
@@ -2310,6 +2862,11 @@ def save_run_state(asset_root: Path, draft_name: str, title: str, copy: str, sce
         # full of guards against.
         "speed": speed,
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        # How the director read the copy, which is what the music is chosen
+        # from. Stored because a --resume never calls the director again, and
+        # without it a resumed run would fall back to reading the copy itself
+        # and could quietly land on a different track than the first run did.
+        "moods": list(moods or []),
         "characters": [asdict(character) for character in characters],
         "scenes": [asdict(scene) for scene in scenes],
         "failures": failures,
@@ -2402,6 +2959,9 @@ def main() -> int:
             if isinstance(item, dict) and item.get("id") and item.get("desc")
         ]
         failures = state.get("failures", [])
+        # Absent before manifest v7; copy_moods() reads the copy instead, so
+        # an older run still gets music rather than an error.
+        moods = [str(mood) for mood in state.get("moods", []) if str(mood) in BGM_MOODS]
         # Absent before manifest v6, which means the clips were made before
         # this setting existed and were read at the baseline.
         previous_speed = validate_speed(state.get("speed", BASELINE_VIDEO_SPEED))
@@ -2427,11 +2987,11 @@ def main() -> int:
         target_scenes, maximum_scenes = scene_limits(cfg.scene_length_mode, cfg.scene_characters, copy)
         print_image_cost_estimate(cfg, target_scenes, maximum_scenes)
         append_run_log(asset_root, "storyboard_started")
-        scenes, characters = plan_scenes(cfg, copy)
+        scenes, characters, moods = plan_scenes(cfg, copy)
         append_run_log(asset_root, "storyboard_completed", scene_count=len(scenes),
                        character_count=len(characters))
         save_run_state(asset_root, draft_name, title, copy, scenes,
-                       characters, "planned", failures, cfg.speed)
+                       characters, "planned", failures, cfg.speed, moods)
 
     if args.plan_only:
         print(json.dumps(
@@ -2458,7 +3018,7 @@ def main() -> int:
             adopt_existing_asset(scene, "audio_path", audio_dir / f"{index:02d}.mp3")
         adopt_existing_asset(scene, "image_path", image_dir / f"{index:02d}.png")
     save_run_state(asset_root, draft_name, title, copy, scenes,
-                   characters, "reconciled", failures, cfg.speed)
+                   characters, "reconciled", failures, cfg.speed, moods)
     append_run_log(asset_root, "assets_reconciled")
 
     def make_tts(index: int, scene: Scene) -> tuple[int, Path]:
@@ -2482,19 +3042,19 @@ def main() -> int:
                     failure = {"stage": "tts", "scene": index, "error": str(exc)}
                     failures.append(failure)
                     save_run_state(asset_root, draft_name, title, copy, scenes,
-                                   characters, "failed", failures, cfg.speed)
+                                   characters, "failed", failures, cfg.speed, moods)
                     append_run_log(asset_root, "tts_failed", **failure)
                     raise
                 scenes[index - 1].audio_path = str(audio_path.resolve())
                 save_run_state(asset_root, draft_name, title, copy, scenes,
-                               characters, "tts_in_progress", failures, cfg.speed)
+                               characters, "tts_in_progress", failures, cfg.speed, moods)
                 append_run_log(asset_root, "tts_completed", scene=index)
                 completed_tts += 1
                 report_progress("Voice-over", completed_tts, len(pending_tts))
 
     populate_audio_durations(scenes)
     save_run_state(asset_root, draft_name, title, copy, scenes,
-                   characters, "audio_durations_ready", failures, cfg.speed)
+                   characters, "audio_durations_ready", failures, cfg.speed, moods)
 
     # The title gets its own voice clip. It is not one of the scenes: the copy
     # is what the scenes narrate, and when --title is given the overlay says
@@ -2507,8 +3067,8 @@ def main() -> int:
 
     title_audio: Path | None = None
     if cfg.speak_title and title.strip() and title_already_narrated(title, scenes):
-        append_run_log(asset_root, "title_tts_skipped", reason="already in the copy")
-        print("Title voice-over skipped: the copy's first line already says it.")
+        append_run_log(asset_root, "title_tts_skipped", reason="already said in the opening")
+        print("Title voice-over skipped: the copy already opens by saying it.")
     elif cfg.speak_title and title.strip():
         # Keyed on the title's own text, not a fixed name. --resume keeps
         # whatever audio is already on disk, so a fixed name meant resuming
@@ -2570,12 +3130,12 @@ def main() -> int:
                     failures.append(failure)
                     current_image_failures.append(failure)
                     save_run_state(asset_root, draft_name, title, copy, scenes,
-                                   characters, "failed", failures, cfg.speed)
+                                   characters, "failed", failures, cfg.speed, moods)
                     append_run_log(asset_root, "image_failed", **failure)
                 else:
                     scenes[index - 1].image_path = str(image_path.resolve())
                     save_run_state(asset_root, draft_name, title, copy, scenes,
-                                   characters, "image_in_progress", failures, cfg.speed)
+                                   characters, "image_in_progress", failures, cfg.speed, moods)
                     append_run_log(asset_root, "image_completed", scene=index)
                 finally:
                     finished_images += 1
@@ -2583,28 +3143,36 @@ def main() -> int:
 
         if current_image_failures:
             save_run_state(asset_root, draft_name, title, copy, scenes,
-                           characters, "failed", failures, cfg.speed)
+                           characters, "failed", failures, cfg.speed, moods)
             first_failure = current_image_failures[0]
             raise RuntimeError(
                 f"{len(current_image_failures)} image(s) failed; successful images were kept for --resume. "
                 f"First failure: scene {first_failure['scene']}: {first_failure['error']}"
             )
 
+    # Chosen here, where both the storyboard and the copy are in hand, and
+    # logged: the bed is the one thing in the video nobody reviews, so a run
+    # that picked the wrong track should at least say which one it picked.
+    bgm_path, bgm_reason = resolve_bgm(cfg, copy, moods)
+    append_run_log(asset_root, "bgm_selected",
+                   path=str(bgm_path) if bgm_path else None, reason=bgm_reason)
+    print(f"BGM: {bgm_reason}")
+
     report_progress("Draft", 0, 1)
     try:
         draft_path = build_draft(cfg, scenes, draft_name, args.replace, title,
-                                 title_audio, cfg.opening_sound_path)
+                                 title_audio, cfg.opening_sound_path, bgm_path)
     except Exception as exc:
         failure = {"stage": "draft", "error": str(exc)}
         failures.append(failure)
         save_run_state(asset_root, draft_name, title, copy, scenes,
-                       characters, "failed", failures, cfg.speed)
+                       characters, "failed", failures, cfg.speed, moods)
         append_run_log(asset_root, "draft_failed", **failure)
         raise
     report_progress("Draft", 1, 1)
     failures = []
     save_run_state(asset_root, draft_name, title, copy, scenes,
-                   characters, "completed", failures, cfg.speed)
+                   characters, "completed", failures, cfg.speed, moods)
     append_run_log(asset_root, "completed", draft_path=str(draft_path))
     print(f"Done: {draft_path}")
     return 0

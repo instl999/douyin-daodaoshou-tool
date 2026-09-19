@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import math
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -775,7 +778,10 @@ def test_every_configured_duration_arrives_already_scaled(monkeypatch, tmp_path)
     drafts = tmp_path / "drafts"
     drafts.mkdir()
     for name, value in {"ARK_API_KEY": "k", "ARK_TTS_VOICE_TYPE": "v",
-                        "JIAN_YING_DRAFT_DIR": str(drafts)}.items():
+                        "JIAN_YING_DRAFT_DIR": str(drafts),
+                        # Set, because its default is now 0 and 0/1.5 == 0
+                        # would pass whether or not the hold is scaled at all.
+                        "ENDING_HOLD_SECONDS": "1.8"}.items():
         monkeypatch.setenv(name, value)
 
     slow = acd.Config.load(speed=1.0)
@@ -866,3 +872,367 @@ def test_resuming_at_a_new_speed_forgets_the_voice_and_keeps_the_pictures():
         scenes = made()
         assert not acd.drop_stale_narration(scenes, resuming, was, now)
         assert scenes[0].audio_path == "01.mp3"
+
+
+# --------------------------------------- the title the copy already says ----
+
+
+def test_a_restated_title_is_caught_even_when_it_is_reworded():
+    """The director rewrites as it splits, so a repeat is rarely a prefix.
+
+    This is the case an exact comparison missed: the headline comes back with
+    its clauses swapped and a particle changed, matches no prefix of anything,
+    and is still the same sentence said twice at the top of the video.
+    """
+    assert acd.title_already_narrated(
+        "男人不能为女人做的3件事", [_title_scene("有3件事，男人不要为女人做。")])
+
+
+def test_a_restatement_in_the_second_sentence_counts_too():
+    """Sentence one is a hook; the thesis the title came from is sentence two."""
+    assert acd.title_already_narrated(
+        "男人不能为女人做的3件事",
+        [_title_scene("今天聊个扎心的话题。"),
+         _title_scene("有3件事，男人千万不要为女人做。")])
+    # And not past the opening pair: by the third sentence the viewer has
+    # heard the title, moved on, and a later echo is not a stutter.
+    assert not acd.title_already_narrated(
+        "男人不能为女人做的3件事",
+        [_title_scene("先说点别的。"), _title_scene("再说点别的。"),
+         _title_scene("有3件事，男人千万不要为女人做。")])
+
+
+def test_sharing_a_subject_is_not_saying_the_same_thing():
+    """A near miss has to stay spoken.
+
+    Dropping the voice from a title the copy never says loses the opening line
+    outright, which is a worse video than the stutter this check exists to
+    prevent - so the ratios are set to let a near miss through.
+    """
+    assert not acd.title_already_narrated(
+        "为什么你存不下钱",
+        [_title_scene("今天聊聊钱的事。"),
+         _title_scene("你有没有发现，工资一到手就没了？")])
+
+
+def test_a_short_title_still_matches_when_it_is_quoted_outright():
+    """Too short for the ratios, but containment needs no length to be sure."""
+    assert acd.title_already_narrated("记账", [_title_scene("我建议你从记账开始。")])
+    assert not acd.title_already_narrated("三十岁", [_title_scene("二十岁的时候你不会懂。")])
+
+
+# ----------------------------------------- finding Jianying's drafts --------
+
+
+def _fake_jianying(tmp_path, monkeypatch, relocated=None):
+    """A LOCALAPPDATA holding an install, optionally with a moved library."""
+    local = tmp_path / "Local"
+    root = local / "JianyingPro"
+    (root / "User Data" / "Projects" / acd.JIANYING_DRAFT_LEAF).mkdir(parents=True)
+    if relocated is not None:
+        relocated.mkdir(parents=True, exist_ok=True)
+        config = root / "User Data" / "Config"
+        config.mkdir(parents=True, exist_ok=True)
+        (config / "globalSetting").write_text(
+            json.dumps({"someOtherPath": str(tmp_path / "nope"),
+                        "currentDraftUserPath": str(relocated.parent)}),
+            encoding="utf-8")
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", "")
+    return root
+
+
+def test_the_drafts_folder_is_found_without_being_configured(tmp_path, monkeypatch):
+    """The setting every new user got wrong first is now usually unnecessary."""
+    root = _fake_jianying(tmp_path, monkeypatch)
+    found, source = acd.resolve_draft_dir()
+    assert found == root / "User Data" / "Projects" / acd.JIANYING_DRAFT_LEAF
+    assert source == "detected"
+
+
+def test_a_relocated_library_beats_the_empty_default(tmp_path, monkeypatch):
+    """Moving the library leaves the default folder in place but empty.
+
+    A probe that knows only the default finds that folder, calls it a hit, and
+    writes every draft where the editor no longer looks - a run that reports
+    success and a draft list that stays empty.
+    """
+    moved = tmp_path / "D" / "JianyingDrafts" / acd.JIANYING_DRAFT_LEAF
+    _fake_jianying(tmp_path, monkeypatch, relocated=moved)
+    assert acd.resolve_draft_dir() == (moved, "detected")
+
+
+def test_an_explicit_setting_still_wins_and_is_still_checked(tmp_path, monkeypatch):
+    """Setting it means this machine is the unusual one; a typo is a mistake."""
+    _fake_jianying(tmp_path, monkeypatch)
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", str(mine))
+    assert acd.resolve_draft_dir() == (mine, "JIAN_YING_DRAFT_DIR")
+
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", str(tmp_path / "typo"))
+    with pytest.raises(RuntimeError, match="JIAN_YING_DRAFT_DIR"):
+        acd.resolve_draft_dir()
+
+
+def test_no_editor_installed_says_which_setting_to_fill(monkeypatch):
+    monkeypatch.setenv("JIAN_YING_DRAFT_DIR", "")
+    monkeypatch.setattr(acd, "jianying_app_roots", list)
+    with pytest.raises(RuntimeError, match="JIAN_YING_DRAFT_DIR"):
+        acd.resolve_draft_dir()
+
+
+# ------------------------------------------------- picking the music --------
+
+
+def _library(directory, *names):
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (directory / name).write_bytes(b"")
+    return directory
+
+
+def test_the_mood_is_read_off_the_front_of_the_filename():
+    """The tag is where the tracks already carry it: before the title."""
+    assert acd.bgm_tag(Path("紧张Kill Drill - Robert Ruth.mp3")) == "紧张"
+    assert acd.bgm_tag(Path("紧张危机Dismantle - Peter Sandberg.mp3")) == "紧张危机"
+    # A Chinese artist name at the END of the filename is not the tag.
+    assert acd.bgm_tag(Path("舒缓Keep on the Sunny Side - 岩崎太整.mp3")) == "舒缓"
+    assert acd.bgm_tag(Path("Untagged Track.mp3")) == ""
+
+
+def test_the_closest_tag_wins(tmp_path):
+    """A track tagged with both moods beats one tagged with either."""
+    entries = acd.bgm_library(_library(
+        tmp_path / "bgm", "紧张Kill Drill.mp3", "紧张危机Dismantle.mp3",
+        "舒缓Sunny Side.mp3", "notes.txt"))
+    assert len(entries) == 3, "only playable files are library entries"
+    assert acd.pick_bgm(entries, ["紧张", "危机"]).name == "紧张危机Dismantle.mp3"
+    assert acd.pick_bgm(entries, ["紧张"]).name == "紧张Kill Drill.mp3"
+    assert acd.pick_bgm(entries, ["舒缓"]).name == "舒缓Sunny Side.mp3"
+
+
+def test_a_track_written_for_an_opening_is_a_worse_bed_than_a_plain_one(tmp_path):
+    """One track is laid under the whole video, so a positional cue ranks down.
+
+    Ranked down, not excluded: a library holding nothing else still has music.
+    """
+    entries = acd.bgm_library(_library(
+        tmp_path / "both", "开头失落IV.mp3", "失落Rain.mp3"))
+    assert acd.pick_bgm(entries, ["失落"]).name == "失落Rain.mp3"
+
+    only_positional = acd.bgm_library(_library(tmp_path / "solo", "开头失落IV.mp3"))
+    assert acd.pick_bgm(only_positional, ["失落"]).name == "开头失落IV.mp3"
+
+
+def test_nothing_matching_means_no_music_rather_than_any_music(tmp_path):
+    """The wrong bed is more distracting than none, and nobody reviews it."""
+    entries = acd.bgm_library(_library(tmp_path / "bgm", "舒缓Sunny Side.mp3"))
+    assert acd.pick_bgm(entries, ["紧张"]) is None
+    assert acd.bgm_library(tmp_path / "missing") == []
+
+
+def test_the_same_copy_picks_the_same_track_every_time(tmp_path):
+    """Two tracks tagged alike must not be chosen between by directory order."""
+    directory = _library(tmp_path / "bgm", "紧张B.mp3", "紧张A.mp3", "紧张C.mp3")
+    assert {acd.pick_bgm(acd.bgm_library(directory), ["紧张"]).name
+            for _ in range(5)} == {"紧张A.mp3"}
+
+
+def test_the_copy_itself_answers_when_the_director_does_not():
+    """The fallback that keeps an older manifest, or a quiet model, in music."""
+    assert "焦虑" in acd.copy_moods("他很焦虑，晚上睡不着，总是担心明天。")
+    assert acd.copy_moods("。。。") == []
+
+
+def test_only_labels_the_library_can_match_are_kept():
+    """A word the model invented matches no filename and displaces a real one."""
+    assert acd.moods_from_payload({"mood": ["紧张", "波澜壮阔", "危机"]}) == ["紧张", "危机"]
+    assert acd.moods_from_payload({"mood": "舒缓"}) == ["舒缓"]
+    assert acd.moods_from_payload({}) == []
+
+
+def test_an_explicit_track_is_not_second_guessed(tmp_path, monkeypatch):
+    """BGM_PATH is somebody naming a track; the library is not consulted."""
+    chosen = tmp_path / "mine.mp3"
+    chosen.write_bytes(b"")
+    library = _library(tmp_path / "bgm", "紧张Kill Drill.mp3")
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    for name, value in {"ARK_API_KEY": "k", "ARK_TTS_VOICE_TYPE": "v",
+                        "JIAN_YING_DRAFT_DIR": str(drafts),
+                        "BGM_PATH": str(chosen),
+                        "BGM_LIBRARY": str(library)}.items():
+        monkeypatch.setenv(name, value)
+    path, reason = acd.resolve_bgm(acd.Config.load(), "随便什么文案", ["紧张"])
+    assert path == chosen
+    assert reason == "BGM_PATH"
+
+
+def test_the_bed_sits_between_20_and_25_dB_under_the_voice(tmp_path, monkeypatch):
+    """Both levels, not only the ducked one.
+
+    The lift used to be 0.20 - 14 dB down, which is music rather than
+    atmosphere, and the one thing in the mix loud enough to compete with the
+    line that follows the gap it fills.
+    """
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    for name, value in {"ARK_API_KEY": "k", "ARK_TTS_VOICE_TYPE": "v",
+                        "JIAN_YING_DRAFT_DIR": str(drafts)}.items():
+        monkeypatch.setenv(name, value)
+    cfg = acd.Config.load()
+    for level in (cfg.bgm_volume, cfg.bgm_lift_volume):
+        assert -25.5 <= 20 * math.log10(level) <= -19.5
+    assert cfg.bgm_volume < cfg.bgm_lift_volume, "the gaps still lift"
+
+
+# ------------------------------------------ one subject, drawn largest -----
+
+
+def test_the_frame_is_told_what_its_subject_is():
+    """The whole hierarchy hangs off a subject, so it has to reach the prompt."""
+    scene = _scene(shot_size="medium")
+    scene.subject = "a woman at a kitchen table"
+    prompt = acd.compose_image_prompt(_StubConfig(), scene, [])
+    assert "exactly one subject and it is a woman at a kitchen table" in prompt
+    assert "the largest thing in the picture" in prompt
+
+
+def test_a_scene_with_no_subject_still_composes():
+    """A v7 manifest, or a model that skipped the field.
+
+    The scene is still usable and the hierarchy still applies - it is only the
+    naming that falls back. Refusing here would throw away a storyboard that
+    was otherwise fine, and paid for.
+    """
+    prompt = acd.compose_image_prompt(_StubConfig(), _scene(), [])
+    assert acd.DEFAULT_SUBJECT in prompt
+    assert "exactly one subject" in prompt
+
+
+def test_the_prompt_no_longer_argues_against_a_focal_point():
+    """The bug, in one line.
+
+    "do not visually overemphasize one incidental detail" reads as "do not
+    emphasise anything", and that is what came back: every element at one
+    size, one weight and one level of detail, with nothing for the eye to land
+    on. The worry it came from now lives in the director's brief, where it can
+    be about choosing the right subject instead of about flattening the frame.
+    """
+    prompt = acd.compose_image_prompt(_StubConfig(), _scene(), [])
+    assert "overemphasize" not in prompt
+    assert "do not visually magnify" not in prompt
+
+
+def test_the_element_budget_tightens_as_the_shot_closes():
+    """A close-up is a face; a wide shot is a place. They cannot hold the same.
+
+    The budget is one number per framing, read by both the image prompt and
+    the director's brief, so a brief cannot ask for more than the picture is
+    allowed to draw.
+    """
+    budgets = [acd.SHOT_SIZES[size].elements for size in ("wide", "medium", "close")]
+    assert budgets == sorted(budgets, reverse=True), budgets
+    assert acd.SHOT_SIZES["close"].elements == 1
+
+    wide = acd.compose_image_prompt(_StubConfig(), _scene(shot_size="wide"), [])
+    close = acd.compose_image_prompt(_StubConfig(), _scene(shot_size="close"), [])
+    assert "At most 4 supporting elements" in wide
+    assert "At most one supporting element" in close
+
+
+def test_the_director_is_told_the_same_budget_the_picture_is_drawn_to():
+    class _Cfg(_StubConfig):
+        style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
+        scene_length_mode = "density"
+        scene_characters = 22
+
+    brief = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    for name, size in acd.SHOT_SIZES.items():
+        assert f"{name} allows at most {size.elements} besides the subject" in brief
+
+
+def test_the_subject_scales_with_the_framing():
+    """"Large" and "small" are what drew a subject the size of a chair."""
+    heights = {size: acd.compose_image_prompt(
+        _StubConfig(), _scene(shot_size=size), []) for size in acd.SHOT_SIZES}
+    assert "about a third of the frame height" in heights["wide"]
+    assert "about two thirds of the frame height" in heights["medium"]
+    assert "at least three quarters of the frame height" in heights["close"]
+
+
+def test_one_picture_of_one_moment_not_a_layout():
+    """A collage has no subject; it has a list. Both ends are told so."""
+    prompt = acd.compose_image_prompt(_StubConfig(), _scene(), [])
+
+    class _Cfg(_StubConfig):
+        style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
+        scene_length_mode = "density"
+        scene_characters = 22
+
+    brief = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    for text in (prompt, brief):
+        assert "split screen" in text
+        assert "grid of panels" in text
+
+
+def test_the_director_must_name_a_thing_rather_than_an_idea():
+    """A named abstraction is where the pile of symbols comes from."""
+    class _Cfg(_StubConfig):
+        style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
+        scene_length_mode = "density"
+        scene_characters = 22
+
+    brief = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    assert '"subject" names it' in brief
+    assert "Never an abstraction" in brief
+    # The stock imagery of an idea, which is what a model reaches for first.
+    for symbol in ("scales", "clocks", "mazes", "lightbulbs", "gears"):
+        assert symbol in brief
+
+
+def test_the_subject_survives_the_storyboard_and_the_manifest():
+    scenes = acd.scenes_from_payload({"scenes": [
+        {"text": "一句话", "image_prompt": "x", "subject": " a cracked phone screen "},
+        {"text": "另一句", "image_prompt": "x"},
+        {"text": "第三句", "image_prompt": "x", "subject": 7},
+    ]})
+    assert [s.subject for s in scenes] == ["a cracked phone screen", "", ""]
+    # And back out of a manifest, which is what --resume reads.
+    restored = acd.scenes_from_manifest(
+        {"scenes": [asdict(scene) for scene in scenes]})
+    assert [s.subject for s in restored] == ["a cracked phone screen", "", ""]
+
+
+# ----------------------------------------- the default style's hierarchy ---
+
+
+def test_the_default_style_asks_for_line_weight_to_do_the_work():
+    """Uniform line weight is the absence of hierarchy.
+
+    Every line the same thickness and hatching everywhere means the subject,
+    the back wall and a chair are drawn with equal emphasis, and the panel
+    reads as a field of marks rather than as a picture. Line weight is the one
+    tool a single-colour line style has for saying what matters.
+    """
+    prompt = acd.STYLE_PRESETS["midnight"].prompt
+    assert "not one line weight" in prompt
+    assert "no uniform line weight" in prompt
+    assert "even weight" not in prompt
+    # And somewhere for the eye to rest, so the drawing is not wall-to-wall.
+    assert "unbroken navy" in prompt
+
+
+def test_the_shipped_styles_file_matches_the_built_in_default():
+    """styles.json wins at runtime, so editing only the built-in changes nothing.
+
+    The two are allowed to diverge on a user's machine - that is the whole
+    point of the file - but the copy committed here is the one everybody
+    starts from, and it silently overrode the code for the default style.
+    """
+    shipped = json.loads((acd.ROOT / "styles.json").read_text(encoding="utf-8"))
+    for name, preset in shipped["presets"].items():
+        if isinstance(preset, dict) and name in acd.STYLE_PRESETS:
+            assert preset["prompt"] == acd.STYLE_PRESETS[name].prompt, name
