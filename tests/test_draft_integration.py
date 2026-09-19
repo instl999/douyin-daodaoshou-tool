@@ -135,9 +135,39 @@ def test_visual_track_is_gapless_and_covers_the_whole_video(draft):
     assert abs(content["duration"] - expected) < SECOND // 10
 
 
-def test_the_picture_holds_after_the_last_word(draft):
-    """The video must not stop dead on the final syllable."""
-    cfg, _, tracks = draft
+def test_the_video_ends_on_the_last_subtitle(draft):
+    """No dead air after the final syllable.
+
+    The picture used to hold 1.8s past the last word. On a feed that plays the
+    next video over the tail, and on an export it is two seconds of nothing at
+    the end of every upload - time an editor then trims by hand on every one.
+    """
+    _, content, tracks = draft
+    last_visual = _sorted_segments(tracks["visuals"])[-1]
+    last_caption = _sorted_segments(tracks[acd.NARRATION_SUBTITLE_TRACK])[-1]
+    visual_end = last_visual["target_timerange"]["start"] + last_visual["target_timerange"]["duration"]
+    caption_end = last_caption["target_timerange"]["start"] + last_caption["target_timerange"]["duration"]
+    assert visual_end - caption_end == pytest.approx(0, abs=SECOND // 20)
+    # And the draft itself is no longer than the picture, so the trailing time
+    # is gone from the timeline rather than merely uncovered by an image.
+    assert content["duration"] == pytest.approx(visual_end, abs=SECOND // 10)
+
+
+def test_an_ending_hold_is_still_available_when_asked_for(workspace, monkeypatch):
+    """The default is zero; the mechanism still works when someone wants it.
+
+    Worth keeping under test on its own: with the default at 0 every other
+    assertion about the hold passes whether the code adds it or not.
+    """
+    assets, _ = workspace
+    monkeypatch.setenv("ENDING_HOLD_SECONDS", "1.8")
+    cfg = acd.Config.load()
+    assert cfg.ending_hold_us == pytest.approx(1.8 * SECOND / cfg.speed, abs=1)
+    path = acd.build_draft(cfg, _scenes(assets), "pytest_held", replace=True,
+                           title="男人不能为女人做的3件事",
+                           opening_sound=cfg.opening_sound_path)
+    content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
+    tracks = {track["name"]: track for track in content["tracks"]}
     last_visual = _sorted_segments(tracks["visuals"])[-1]
     last_caption = _sorted_segments(tracks[acd.NARRATION_SUBTITLE_TRACK])[-1]
     visual_end = last_visual["target_timerange"]["start"] + last_visual["target_timerange"]["duration"]

@@ -22,7 +22,9 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Fill in three things in `.env` — `ARK_API_KEY`, `ARK_TTS_VOICE_TYPE`, `JIAN_YING_DRAFT_DIR`. Then:
+Fill in two things in `.env` — `ARK_API_KEY` and `ARK_TTS_VOICE_TYPE`. The
+draft folder is found for you, so the draft lands in Jianying with nothing to
+copy by hand; set `JIAN_YING_DRAFT_DIR` only if that lookup fails. Then:
 
 ```powershell
 python animated_caption_draft.py --check-config
@@ -60,6 +62,9 @@ This is what separates it from a batch image slideshow.
 
 | | Behaviour |
 | --- | --- |
+| **One subject per frame** | Each shot names a drawable subject first, then composes around it: subject largest and sharpest, support visibly subordinate, a third of the frame left quiet. Still readable an inch wide |
+| **Framing sets the budget** | 4 supporting elements wide, 2 medium, 1 close — the same cap given to the director and to the image model |
+| **Composed for a general audience** | People doing concrete things first; no illustrating an idea with scales, clocks, mazes, lightbulbs or gears, and no collages or split screens |
 | **Consistent art direction** | One style prompt for the whole video: nine presets (see `styles.json`, editable and extensible), or write your own |
 | **A style brings its own fittings** | Switching style also switches what the storyboard director is told it is drawing, the whole-video filter, and the title colourway — no more picking film noir and getting a director who still writes flat comic panels |
 | **Measured title typography** | The title block is centred, broken onto two or three lines and coloured line by line, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
@@ -67,8 +72,9 @@ This is what separates it from a batch image slideshow.
 | **Varied framing** | Wide / medium / close chosen per line — wide to open a section and establish a place, close for a feeling, a turn or a conclusion |
 | **One image, one whole shot** | `01.png` runs to its end and `02.png` follows; an image is never cut into two segments |
 | **Constant camera speed** | Five camera moves cycle per scene, and how far each travels is derived from the shot's length, so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan stays inside the headroom the scale provides and never exposes the frame edge |
-| **Room to breathe** | A beat of BGM only after each paragraph (the outgoing picture holds through it), and the last picture held for 1.8s after the final word |
-| **Ducked music** | 0.10 under speech, lifted to 0.20 in the gaps — and not lifted at all where the gap is too short, so it never pumps between sentences |
+| **Room to breathe** | A beat of BGM only after each paragraph (the outgoing picture holds through it); the video ends on the last subtitle, with no dead air after it |
+| **Music matched to the copy** | One bed picked from the library by the mood label on each filename, matched to how the director read the script; nothing found means no music |
+| **Ducked music** | 0.056 under speech, lifted to 0.10 in the gaps — and not lifted at all where the gap is too short, so it never pumps between sentences |
 | **Stable caption baseline** | A wrapped caption is raised by half a line so its bottom line stays put, instead of the block jumping as the line count changes |
 | **Unified colour** | One filter across the whole video, pulling independently generated panels into the same look |
 | **Hard cuts throughout** | No transitions, no intro animations; all the motion comes from the camera move |
@@ -165,6 +171,85 @@ Notes:
 
 ---
 
+## What the frame is of
+
+One picture, one subject, everything else in support. Neither end used to say
+so, and the image prompt said the **opposite** in as many words:
+
+```text
+do not visually overemphasize one incidental detail
+```
+
+That was written against a real failure - seizing on a passing noun and
+drawing that - but read as written it forbids emphasising anything, and that
+is what came back. The person, the table, the window and the clock on the wall
+all drawn at one size, one line weight and one level of detail, with nothing
+for the eye to land on. On a phone that reads as texture, not as a picture.
+
+**The director now names the subject before it writes the description.** Each
+scene carries a `subject`: two to five English words for something that can be
+drawn.
+
+```json
+{"text": "她把手机扣在桌上", "subject": "a woman placing a phone face-down",
+ "image_prompt": "...", "shot_size": "close"}
+```
+
+Never an abstraction (`pressure`, `regret`), never a whole scene, never two
+things joined by `and`. **A separate field is the point**: a field holds one
+answer where a description can quietly hold four, which is exactly how "one
+image per sentence" turned into "everything in the sentence, in one image".
+`--plan-only` prints it, so it is the first thing to read when a frame is
+wrong.
+
+**The image prompt states a hierarchy** instead of forbidding one:
+
+| | |
+| --- | --- |
+| Subject | largest, sharpest, most detailed, most contrast against what is behind it; dead centre or on a thirds intersection |
+| Support | visibly subordinate - smaller, flatter, fewer marks, less contrast - and never crowding the subject's outline |
+| Ground | at least a third of the frame left quiet. **A frame filled edge to edge has no subject** |
+| Thumbnail | the subject stays identifiable an inch wide, carried by silhouette and tone rather than by an outline |
+| One picture | never a collage, a split screen, a before-and-after pair, a grid of panels, an inset or a row of icons |
+
+**Framing decides how much may share the frame.** The same number goes to the
+director and to the image model, so a brief cannot ask for more than the
+picture is allowed to draw:
+
+| Shot | Subject fills | Supporting elements |
+| --- | --- | --- |
+| `wide` | ~1/3 of frame height | 4 |
+| `medium` | ~2/3 | 2 |
+| `close` | at least 3/4 | 1 |
+
+**And the reading is chosen for a general audience, not for cleverness.** The
+director is told: these are watched on a phone and judged in the first
+half-second; prefer a person doing something concrete over an object, and an
+object over a diagram or a metaphor; when the sentence is about how somebody
+feels, the picture is that person's face. Never illustrate an idea with a pile
+of symbols - scales, clocks, mazes, lightbulbs, brains, gears, arrows, question
+marks, chess pieces, puppet strings - and never put two metaphors in one frame.
+
+### The default style: line weight does the sorting
+
+`midnight` is pure line work, and it asked for `clean white contour lines of
+even weight` while hatching the whole panel. **Uniform weight is the absence of
+hierarchy**: the subject, the back wall and a chair come out drawn with equal
+emphasis. Line weight and line density are the only tools a single-colour line
+style has for saying what matters, and both were switched off.
+
+Now the subject carries a heavy contour and nearly all the detail, support is
+thinner and plainer, the background is the lightest and sparsest line in the
+picture, hatching concentrates on the subject and thins to nothing outward, and
+**large areas of the panel are left as unbroken navy with no line in them at
+all**.
+
+> The change lands in the built-in default *and* in the repository's
+> `styles.json`. The file wins at runtime, so editing only the code would have
+> changed nothing - there is a test watching for exactly that.
+
+---
+
 ## Title and caption typography
 
 These numbers were measured frame by frame off the reference video (1920x1080), not estimated:
@@ -200,11 +285,24 @@ never vanishes mid-sentence.
 The title gets no caption of its own: the large type in the middle of the frame
 is its caption.
 
-**Without `--title` the title is not spoken twice.** It defaults to the copy's
-first line, and that line is part of the copy the scenes narrate — so speaking
-it as well would say the same sentence twice in a row. The title only gets its
-own voice when it says something the copy does not, which is also the only case
-where the timeline gets longer.
+**A title the opening already says is not spoken twice.** It defaults to the
+copy's first line, and that line is part of the copy the scenes narrate — so
+speaking it as well would say the same sentence twice in a row. The title only
+gets its own voice when it says something the copy does not, which is also the
+only case where the timeline gets longer.
+
+The check is on **meaning**, across the **first two sentences**, not on an
+exact prefix of the first:
+
+- The director rewrites as it splits, so a repeat is rarely a prefix. The title
+  `男人不能为女人做的3件事` comes back as `有3件事，男人不要为女人做。` — a
+  prefix of nothing, and the same sentence twice to anyone watching.
+- Sentence one is usually a hook, and the line the title was taken from lands in
+  sentence two. Both count.
+
+The thresholds are deliberately strict. Dropping the voice from a title the copy
+never says loses the opening line outright, which is a worse video than the
+stutter this prevents — so a near miss is left spoken.
 
 **Speaking the title is on by default** (`SPEAK_TITLE=1`). Setting
 `SPEAK_TITLE=0` turns it off, and the timeline returns exactly to what it was
@@ -317,6 +415,53 @@ success.
 
 ---
 
+## Music picked from the copy
+
+Put a folder of music at `assets/bgm/` (or point `BGM_LIBRARY` anywhere else)
+with a **Chinese mood label at the start of each filename**, and one bed is
+chosen for the video:
+
+```text
+紧张Kill Drill - Robert Ruth.mp3
+紧张危机Dismantle - Peter Sandberg.mp3
+舒缓Keep on the Sunny Side - 岩崎太整.mp3
+```
+
+The label is the run of Chinese characters the filename opens with, up to the
+first character that is not Chinese — so a Chinese artist name at the END is not
+mistaken for one. The labels available:
+
+```text
+紧张 tense    危机 crisis     焦虑 anxious   疑问 questioning
+疑惑 puzzled  失落 downcast   转机 a turn    升华 uplift
+欢乐 joyful   舒缓 calm       平淡 plain     解释 explaining
+讲解 walking through          措施 remedies  解决 resolving
+```
+
+**The mood comes from the storyboard call that already runs**, as one extra
+field on it — not a second request per video. When the model returns none, and
+on a `--resume` from a manifest written before this existed, the words in the
+copy itself answer instead, so a run never fails for want of a label.
+
+| | how it picks |
+| --- | --- |
+| more labels win | a copy read as 紧张 + 危机 takes `紧张危机…` over a plain `紧张…` |
+| positional labels rank down | `开头` / `结尾` / `后期` / `提出` are written for one stretch of a video; under a whole one they sit below an unprefixed track of the same mood. **Ranked down, not excluded** — a library with nothing else still supplies music |
+| no match means no music | the wrong bed is more distracting than none, and this is the one choice in the video nobody reviews |
+| ties break by filename | two tracks labelled alike always resolve the same way, so a rebuild or a `--resume` keeps the same music |
+| an explicit track wins | `BGM_PATH` is somebody naming a track; the library is not consulted |
+
+The line `BGM: 紧张/危机 -> 紧张危机Dismantle - Peter Sandberg.mp3` is printed at
+the end of a run and recorded in `run.log`. `--check-config` reports where the
+library is, how many tracks are in it, and how many carry a label.
+
+**The bed sits 20–25 dB under the voice.** `0.056` (-25 dB) under speech,
+lifting to `0.10` (-20 dB) in the gaps. The lift used to be 0.20 — 14 dB down,
+which is music rather than atmosphere, and the only thing in the mix loud enough
+to compete with the line that follows the gap it fills.
+
+---
+
 ## Timeline layout
 
 ```text
@@ -331,7 +476,8 @@ success.
 [title]    first 2.4s at 1.0x, scaled by VIDEO_SPEED; one text track per line
            (title_overlay, title_overlay_2, ...), coloured line by line
 [SFX]      once, at the open
-[BGM]      0.10 under speech, 0.20 in the gaps; looped, faded at both ends
+[BGM]      picked from the library by mood; 0.056 under speech, 0.10 in the
+           gaps; looped, faded at both ends
 [grade]    one filter across the whole video
 ```
 
@@ -347,7 +493,7 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | --- | --- | --- |
 | `ARK_API_KEY` | empty | Ark Agent Plan key, shared by all three models |
 | `ARK_TTS_VOICE_TYPE` | sample voice | Voice ID |
-| `JIAN_YING_DRAFT_DIR` | empty | Local Jianying draft root |
+| `JIAN_YING_DRAFT_DIR` | empty = auto | Local Jianying draft root. Found automatically when empty, including a relocated library |
 | `IMAGE_STYLE_PRESET` | `midnight` | Whole-video art direction, one of nine; see [styles.json](styles.json) |
 | `IMAGE_STYLES_FILE` | empty | Path to the styles JSON; empty uses `styles.json` in the repo root |
 | `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. **The only pacing control**: lower means faster cuts, more images, higher cost |
@@ -356,8 +502,10 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `VIDEO_SPEED` | `1.2` | **Global speed**, 1.0 is the baseline; narration, picture, camera and captions move together — see above |
 | `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second (multiplied by `VIDEO_SPEED`) |
 | `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph (at 1.0×) |
-| `ENDING_HOLD_SECONDS` | `1.8` | How long the last picture holds (at 1.0×) |
-| `BGM_VOLUME` / `BGM_LIFT_VOLUME` | `0.10` / `0.20` | Music level under speech / in the gaps |
+| `ENDING_HOLD_SECONDS` | `0` | How long the last picture holds after the final word (at 1.0×). Nothing, by default |
+| `BGM_PATH` | empty | One named track; set it and the library is not consulted |
+| `BGM_LIBRARY` | empty = `assets/bgm` | Folder of music, matched to the copy by the mood label on each filename |
+| `BGM_VOLUME` / `BGM_LIFT_VOLUME` | `0.056` / `0.10` | Music level under speech / in the gaps (-25 / -20 dB) |
 | `COLOR_GRADE` | empty = follows the style | Whole-video filter; `none` disables |
 | `NARRATION_SUBTITLE_Y` | `-700` | Caption position; see below |
 | `NARRATION_SUBTITLE_SIZE` | `6.8` | Caption size, about 67 px |
@@ -421,11 +569,17 @@ The suite covers every piece of logic that does not call a paid API:
 
 - Layout coordinate conversion and safe-area clamping
 - Camera rate normalisation, upscale ceiling, and pans that never expose the edge
-- Timeline layout: gapless shots, beat placement, ending hold
+- Timeline layout: gapless shots, beat placement, ending on the last subtitle
+- Music library: label parsing, compound labels winning, positional labels ranked down, no match meaning no music, reproducible ties
+- Finding Jianying's drafts: the default location, a relocated library, an explicit setting winning, the error when nothing is found
+- The title-echo check: a reworded repeat, one landing in sentence two, a near miss left spoken
 - BGM looping, head/tail fades, and the ducking envelope (including "do not lift when the gap is too short")
 - Caption wrap estimation and baseline compensation
 - Title line breaking: the reference title's real break point, the particle rules, digit runs kept whole, explicit newlines, the line ceiling
 - The stacked title: block centring, line pitch, per-line colour, and shrinking rather than wrapping when it is too long
+- The frame's subject: it reaches the prompt, it falls back when absent, the element budget and subject size track the framing, and neither end may ask for a collage
+- What the director is held to: naming a drawable thing, no symbol piles, and the same element budget the picture is drawn to
+- The default style no longer asks for uniform line weight, and `styles.json` agrees with the built-in default
 - Style completeness: nine presets each carrying `medium` / `avoid` / `grade` / `title`, and the backward-compatible string form
 - Storyboard JSON tolerance, framing and paragraph-mark parsing
 - One integration test that builds a real draft from synthetic media and asserts against the parsed `draft_content.json`
@@ -439,7 +593,8 @@ The suite covers every piece of logic that does not call a paid API:
 | HTTP 429 | Lower `IMAGE_CONCURRENCY`. Errors carry the API's response body, so rate limiting and an empty balance are distinguishable |
 | SSL EOF / dropped connection | Retry later with `--resume`; drop to one worker if needed |
 | Opening sound effect not found | Check `OPENING_SOUND_PATH` points at an existing MP3 or WAV |
-| Jianying folder not found | Check `JIAN_YING_DRAFT_DIR` is the Jianying Pro draft root |
+| Jianying folder not found | Only needed when the lookup fails: 全局设置 → 草稿位置 in Jianying shows the path to put in `JIAN_YING_DRAFT_DIR` |
+| No music | `--check-config` prints the library path and how many tracks carry a mood label; a filename must START with one to be matched |
 | Caption sits wrong | Adjust `NARRATION_SUBTITLE_Y`, confirming with `--check-config` |
 | Wrapped captions drift | Calibrate `SUBTITLE_EM_PX`; it is the only number feeding the wrap estimate |
 | `.env` edits do nothing | A process environment variable takes priority; `--check-config` shows the source |
