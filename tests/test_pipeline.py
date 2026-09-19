@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -1085,3 +1086,153 @@ def test_the_bed_sits_between_20_and_25_dB_under_the_voice(tmp_path, monkeypatch
     for level in (cfg.bgm_volume, cfg.bgm_lift_volume):
         assert -25.5 <= 20 * math.log10(level) <= -19.5
     assert cfg.bgm_volume < cfg.bgm_lift_volume, "the gaps still lift"
+
+
+# ------------------------------------------ one subject, drawn largest -----
+
+
+def test_the_frame_is_told_what_its_subject_is():
+    """The whole hierarchy hangs off a subject, so it has to reach the prompt."""
+    scene = _scene(shot_size="medium")
+    scene.subject = "a woman at a kitchen table"
+    prompt = acd.compose_image_prompt(_StubConfig(), scene, [])
+    assert "exactly one subject and it is a woman at a kitchen table" in prompt
+    assert "the largest thing in the picture" in prompt
+
+
+def test_a_scene_with_no_subject_still_composes():
+    """A v7 manifest, or a model that skipped the field.
+
+    The scene is still usable and the hierarchy still applies - it is only the
+    naming that falls back. Refusing here would throw away a storyboard that
+    was otherwise fine, and paid for.
+    """
+    prompt = acd.compose_image_prompt(_StubConfig(), _scene(), [])
+    assert acd.DEFAULT_SUBJECT in prompt
+    assert "exactly one subject" in prompt
+
+
+def test_the_prompt_no_longer_argues_against_a_focal_point():
+    """The bug, in one line.
+
+    "do not visually overemphasize one incidental detail" reads as "do not
+    emphasise anything", and that is what came back: every element at one
+    size, one weight and one level of detail, with nothing for the eye to land
+    on. The worry it came from now lives in the director's brief, where it can
+    be about choosing the right subject instead of about flattening the frame.
+    """
+    prompt = acd.compose_image_prompt(_StubConfig(), _scene(), [])
+    assert "overemphasize" not in prompt
+    assert "do not visually magnify" not in prompt
+
+
+def test_the_element_budget_tightens_as_the_shot_closes():
+    """A close-up is a face; a wide shot is a place. They cannot hold the same.
+
+    The budget is one number per framing, read by both the image prompt and
+    the director's brief, so a brief cannot ask for more than the picture is
+    allowed to draw.
+    """
+    budgets = [acd.SHOT_SIZES[size].elements for size in ("wide", "medium", "close")]
+    assert budgets == sorted(budgets, reverse=True), budgets
+    assert acd.SHOT_SIZES["close"].elements == 1
+
+    wide = acd.compose_image_prompt(_StubConfig(), _scene(shot_size="wide"), [])
+    close = acd.compose_image_prompt(_StubConfig(), _scene(shot_size="close"), [])
+    assert "At most 4 supporting elements" in wide
+    assert "At most one supporting element" in close
+
+
+def test_the_director_is_told_the_same_budget_the_picture_is_drawn_to():
+    class _Cfg(_StubConfig):
+        style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
+        scene_length_mode = "density"
+        scene_characters = 22
+
+    brief = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    for name, size in acd.SHOT_SIZES.items():
+        assert f"{name} allows at most {size.elements} besides the subject" in brief
+
+
+def test_the_subject_scales_with_the_framing():
+    """"Large" and "small" are what drew a subject the size of a chair."""
+    heights = {size: acd.compose_image_prompt(
+        _StubConfig(), _scene(shot_size=size), []) for size in acd.SHOT_SIZES}
+    assert "about a third of the frame height" in heights["wide"]
+    assert "about two thirds of the frame height" in heights["medium"]
+    assert "at least three quarters of the frame height" in heights["close"]
+
+
+def test_one_picture_of_one_moment_not_a_layout():
+    """A collage has no subject; it has a list. Both ends are told so."""
+    prompt = acd.compose_image_prompt(_StubConfig(), _scene(), [])
+
+    class _Cfg(_StubConfig):
+        style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
+        scene_length_mode = "density"
+        scene_characters = 22
+
+    brief = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    for text in (prompt, brief):
+        assert "split screen" in text
+        assert "grid of panels" in text
+
+
+def test_the_director_must_name_a_thing_rather_than_an_idea():
+    """A named abstraction is where the pile of symbols comes from."""
+    class _Cfg(_StubConfig):
+        style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
+        scene_length_mode = "density"
+        scene_characters = 22
+
+    brief = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    assert '"subject" names it' in brief
+    assert "Never an abstraction" in brief
+    # The stock imagery of an idea, which is what a model reaches for first.
+    for symbol in ("scales", "clocks", "mazes", "lightbulbs", "gears"):
+        assert symbol in brief
+
+
+def test_the_subject_survives_the_storyboard_and_the_manifest():
+    scenes = acd.scenes_from_payload({"scenes": [
+        {"text": "一句话", "image_prompt": "x", "subject": " a cracked phone screen "},
+        {"text": "另一句", "image_prompt": "x"},
+        {"text": "第三句", "image_prompt": "x", "subject": 7},
+    ]})
+    assert [s.subject for s in scenes] == ["a cracked phone screen", "", ""]
+    # And back out of a manifest, which is what --resume reads.
+    restored = acd.scenes_from_manifest(
+        {"scenes": [asdict(scene) for scene in scenes]})
+    assert [s.subject for s in restored] == ["a cracked phone screen", "", ""]
+
+
+# ----------------------------------------- the default style's hierarchy ---
+
+
+def test_the_default_style_asks_for_line_weight_to_do_the_work():
+    """Uniform line weight is the absence of hierarchy.
+
+    Every line the same thickness and hatching everywhere means the subject,
+    the back wall and a chair are drawn with equal emphasis, and the panel
+    reads as a field of marks rather than as a picture. Line weight is the one
+    tool a single-colour line style has for saying what matters.
+    """
+    prompt = acd.STYLE_PRESETS["midnight"].prompt
+    assert "not one line weight" in prompt
+    assert "no uniform line weight" in prompt
+    assert "even weight" not in prompt
+    # And somewhere for the eye to rest, so the drawing is not wall-to-wall.
+    assert "unbroken navy" in prompt
+
+
+def test_the_shipped_styles_file_matches_the_built_in_default():
+    """styles.json wins at runtime, so editing only the built-in changes nothing.
+
+    The two are allowed to diverge on a user's machine - that is the whole
+    point of the file - but the copy committed here is the one everybody
+    starts from, and it silently overrode the code for the default style.
+    """
+    shipped = json.loads((acd.ROOT / "styles.json").read_text(encoding="utf-8"))
+    for name, preset in shipped["presets"].items():
+        if isinstance(preset, dict) and name in acd.STYLE_PRESETS:
+            assert preset["prompt"] == acd.STYLE_PRESETS[name].prompt, name

@@ -62,6 +62,9 @@ This is what separates it from a batch image slideshow.
 
 | | Behaviour |
 | --- | --- |
+| **One subject per frame** | Each shot names a drawable subject first, then composes around it: subject largest and sharpest, support visibly subordinate, a third of the frame left quiet. Still readable an inch wide |
+| **Framing sets the budget** | 4 supporting elements wide, 2 medium, 1 close — the same cap given to the director and to the image model |
+| **Composed for a general audience** | People doing concrete things first; no illustrating an idea with scales, clocks, mazes, lightbulbs or gears, and no collages or split screens |
 | **Consistent art direction** | One style prompt for the whole video: nine presets (see `styles.json`, editable and extensible), or write your own |
 | **A style brings its own fittings** | Switching style also switches what the storyboard director is told it is drawing, the whole-video filter, and the title colourway — no more picking film noir and getting a director who still writes flat comic panels |
 | **Measured title typography** | The title block is centred, broken onto two or three lines and coloured line by line, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
@@ -71,7 +74,7 @@ This is what separates it from a batch image slideshow.
 | **Constant camera speed** | Five camera moves cycle per scene, and how far each travels is derived from the shot's length, so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan stays inside the headroom the scale provides and never exposes the frame edge |
 | **Room to breathe** | A beat of BGM only after each paragraph (the outgoing picture holds through it); the video ends on the last subtitle, with no dead air after it |
 | **Music matched to the copy** | One bed picked from the library by the mood label on each filename, matched to how the director read the script; nothing found means no music |
-| **Ducked music** | 0.10 under speech, lifted to 0.20 in the gaps — and not lifted at all where the gap is too short, so it never pumps between sentences |
+| **Ducked music** | 0.056 under speech, lifted to 0.10 in the gaps — and not lifted at all where the gap is too short, so it never pumps between sentences |
 | **Stable caption baseline** | A wrapped caption is raised by half a line so its bottom line stays put, instead of the block jumping as the line count changes |
 | **Unified colour** | One filter across the whole video, pulling independently generated panels into the same look |
 | **Hard cuts throughout** | No transitions, no intro animations; all the motion comes from the camera move |
@@ -165,6 +168,85 @@ Notes:
   style will not fix a bad storyboard
 - `--check-config` prints the active style, its `medium`, where it was loaded from, and the resolved
   filter and title settings
+
+---
+
+## What the frame is of
+
+One picture, one subject, everything else in support. Neither end used to say
+so, and the image prompt said the **opposite** in as many words:
+
+```text
+do not visually overemphasize one incidental detail
+```
+
+That was written against a real failure - seizing on a passing noun and
+drawing that - but read as written it forbids emphasising anything, and that
+is what came back. The person, the table, the window and the clock on the wall
+all drawn at one size, one line weight and one level of detail, with nothing
+for the eye to land on. On a phone that reads as texture, not as a picture.
+
+**The director now names the subject before it writes the description.** Each
+scene carries a `subject`: two to five English words for something that can be
+drawn.
+
+```json
+{"text": "她把手机扣在桌上", "subject": "a woman placing a phone face-down",
+ "image_prompt": "...", "shot_size": "close"}
+```
+
+Never an abstraction (`pressure`, `regret`), never a whole scene, never two
+things joined by `and`. **A separate field is the point**: a field holds one
+answer where a description can quietly hold four, which is exactly how "one
+image per sentence" turned into "everything in the sentence, in one image".
+`--plan-only` prints it, so it is the first thing to read when a frame is
+wrong.
+
+**The image prompt states a hierarchy** instead of forbidding one:
+
+| | |
+| --- | --- |
+| Subject | largest, sharpest, most detailed, most contrast against what is behind it; dead centre or on a thirds intersection |
+| Support | visibly subordinate - smaller, flatter, fewer marks, less contrast - and never crowding the subject's outline |
+| Ground | at least a third of the frame left quiet. **A frame filled edge to edge has no subject** |
+| Thumbnail | the subject stays identifiable an inch wide, carried by silhouette and tone rather than by an outline |
+| One picture | never a collage, a split screen, a before-and-after pair, a grid of panels, an inset or a row of icons |
+
+**Framing decides how much may share the frame.** The same number goes to the
+director and to the image model, so a brief cannot ask for more than the
+picture is allowed to draw:
+
+| Shot | Subject fills | Supporting elements |
+| --- | --- | --- |
+| `wide` | ~1/3 of frame height | 4 |
+| `medium` | ~2/3 | 2 |
+| `close` | at least 3/4 | 1 |
+
+**And the reading is chosen for a general audience, not for cleverness.** The
+director is told: these are watched on a phone and judged in the first
+half-second; prefer a person doing something concrete over an object, and an
+object over a diagram or a metaphor; when the sentence is about how somebody
+feels, the picture is that person's face. Never illustrate an idea with a pile
+of symbols - scales, clocks, mazes, lightbulbs, brains, gears, arrows, question
+marks, chess pieces, puppet strings - and never put two metaphors in one frame.
+
+### The default style: line weight does the sorting
+
+`midnight` is pure line work, and it asked for `clean white contour lines of
+even weight` while hatching the whole panel. **Uniform weight is the absence of
+hierarchy**: the subject, the back wall and a chair come out drawn with equal
+emphasis. Line weight and line density are the only tools a single-colour line
+style has for saying what matters, and both were switched off.
+
+Now the subject carries a heavy contour and nearly all the detail, support is
+thinner and plainer, the background is the lightest and sparsest line in the
+picture, hatching concentrates on the subject and thins to nothing outward, and
+**large areas of the panel are left as unbroken navy with no line in them at
+all**.
+
+> The change lands in the built-in default *and* in the repository's
+> `styles.json`. The file wins at runtime, so editing only the code would have
+> changed nothing - there is a test watching for exactly that.
 
 ---
 
@@ -495,6 +577,9 @@ The suite covers every piece of logic that does not call a paid API:
 - Caption wrap estimation and baseline compensation
 - Title line breaking: the reference title's real break point, the particle rules, digit runs kept whole, explicit newlines, the line ceiling
 - The stacked title: block centring, line pitch, per-line colour, and shrinking rather than wrapping when it is too long
+- The frame's subject: it reaches the prompt, it falls back when absent, the element budget and subject size track the framing, and neither end may ask for a collage
+- What the director is held to: naming a drawable thing, no symbol piles, and the same element budget the picture is drawn to
+- The default style no longer asks for uniform line weight, and `styles.json` agrees with the built-in default
 - Style completeness: nine presets each carrying `medium` / `avoid` / `grade` / `title`, and the backward-compatible string form
 - Storyboard JSON tolerance, framing and paragraph-mark parsing
 - One integration test that builds a real draft from synthetic media and asserts against the parsed `draft_content.json`

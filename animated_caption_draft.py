@@ -205,18 +205,21 @@ STYLE_PRESETS: dict[str, StylePreset] = {
     "midnight": StylePreset(
         label="深蓝白描",
         prompt=(
-            "Single-colour white line illustration on a flat deep midnight-blue ground, the whole panel one "
-            "continuous pen drawing: every figure, building and object rendered only as clean white contour "
-            "lines of even weight, volume and shadow built from fine parallel hatching and cross-hatching like "
-            "a steel engraving, no filled colour areas and no grey wash, the navy itself reading as shadow. "
-            "Semi-realistic adults with confident anatomy, simple strongly readable silhouettes and clear body "
-            "language, faces drawn in few lines and barely shaded. One subject, held large and central, with "
-            "wide empty navy around it and only a horizon or two suggested walls for depth. Exactly one or two "
-            "elements carry a flat saturated spot colour -- gold, crimson, amber or magenta -- and everything "
-            "else stays white on navy; a soft glow only where there is a light source. Even fine grain across "
-            "the whole panel. Editorial, symbolic, calm. "
-            "Not photorealistic, no 3D render, no full-colour painting, no watercolour, no black outlines, "
-            "no pale or white background, 16:9"
+            "Single-colour white line illustration on a flat deep midnight-blue ground, drawn with one pen but not one "
+            "line weight: the subject carries a confident heavy contour and almost all of the detail, supporting "
+            "objects are drawn thinner and plainer, and the background is the lightest and sparsest line in the "
+            "picture, so weight alone says what matters. Volume and shadow built from fine parallel hatching and "
+            "cross-hatching like a steel engraving, concentrated on and immediately around the subject and thinning to "
+            "nothing further out; no filled colour areas and no grey wash, the bare navy itself reading as shadow. "
+            "Large areas of the panel left as unbroken navy with no line in them at all - the drawing must not run "
+            "edge to edge. Semi-realistic adults with confident anatomy, simple strongly readable silhouettes and "
+            "clear body language, faces drawn in few lines and barely shaded. One subject, held large and central, "
+            "with wide empty navy around it and only a horizon or two suggested walls for depth. Exactly one or two "
+            "elements carry a flat saturated spot colour -- gold, crimson, amber or magenta -- and it goes on the "
+            "subject or on the one thing the sentence turns on, never on scenery; everything else stays white on navy, "
+            "with a soft glow only where there is a light source. Even fine grain across the whole panel. Editorial, "
+            "symbolic, calm. Not photorealistic, no 3D render, no full-colour painting, no watercolour, no black "
+            "outlines, no pale or white background, no busy all-over line texture, no uniform line weight, 16:9"
         ),
         medium="a white line drawing on a deep midnight-blue ground",
         avoid="photography, 3D rendering, full-colour painting, or a pale background",
@@ -389,21 +392,85 @@ DEFAULT_STYLES_FILENAME = "styles.json"
 # Framing is per scene, not part of the art direction: thirty medium shots in a
 # row is the fastest way to make a video feel monotonous, however good the
 # style is.
+@dataclass(frozen=True)
+class Framing:
+    """One shot size: where the camera sits, and how much may be in the frame.
+
+    The element budget and the subject's size live here rather than in a
+    second dictionary keyed the same way. Two tables of the same shot sizes
+    are two tables that disagree the first time one is added to.
+    """
+
+    # Where the camera is, in the words the image model is given.
+    brief: str
+    # Supporting elements allowed besides the subject. A wide shot is a place
+    # and can carry a few; a close-up is a face and can carry almost nothing.
+    # The number is a cap given to both the director and the image model, so
+    # the brief cannot ask for more than the picture is allowed to draw.
+    elements: int
+    # How much of the frame height the subject fills. Written as a fraction on
+    # purpose: "large" and "small" are what produced frames where the subject
+    # and a background chair were drawn the same size.
+    subject_height: str
+
+
 SHOT_SIZES = {
-    "wide": (
-        "Wide establishing shot: the figures are small in the frame, the whole room or street is visible around "
-        "them, generous headroom, the setting doing as much work as the people."
+    "wide": Framing(
+        brief=(
+            "Wide establishing shot: the whole room or street is visible, generous headroom, the setting doing as "
+            "much work as the people, but one figure or object still clearly leads the frame."
+        ),
+        elements=4,
+        subject_height="at about a third of the frame height",
     ),
-    "medium": (
-        "Medium shot from roughly the waist up: one or two figures fill the middle of the frame, enough background "
-        "to read the place but not more."
+    "medium": Framing(
+        brief=(
+            "Medium shot from roughly the waist up: the subject fills the middle of the frame, enough background "
+            "to read the place and no more."
+        ),
+        elements=2,
+        subject_height="at about two thirds of the frame height",
     ),
-    "close": (
-        "Close-up: the face and shoulders fill the frame, the expression is the subject, the background reduced to "
-        "a few simple shapes well out of focus of attention."
+    "close": Framing(
+        brief=(
+            "Close-up: the face and shoulders fill the frame, the expression is the subject, the background "
+            "reduced to two or three simple shapes with no detail of their own."
+        ),
+        elements=1,
+        subject_height="filling at least three quarters of the frame height",
     ),
 }
 DEFAULT_SHOT_SIZE = "medium"
+
+# What every frame has to do, whichever of the nine styles is drawing it.
+#
+# Composition is deliberately NOT in the style presets. A preset says what
+# medium a picture is in; this says where the eye goes, and the same answer
+# has to hold in all of them. It was in neither, and the usage block below
+# used to argue against it in as many words - "do not visually overemphasize
+# one incidental detail" is an instruction to flatten the frame, and flat is
+# what came back: every element at one size, one weight and one level of
+# detail, nothing to land on, and on a phone that reads as texture rather
+# than as a picture.
+COMPOSITION = (
+    "Composition. The frame has exactly one subject and it is {subject}, drawn {height}: the largest thing in the "
+    "picture, the sharpest, the most detailed, and the one with the most contrast against what is behind it, placed "
+    "either dead centre or on a rule-of-thirds intersection. Everything else is support and has to look subordinate "
+    "- smaller, flatter, fewer marks, less contrast - and nothing may overlap or crowd the subject's outline. "
+    "The subject has to stay identifiable with the whole frame an inch wide, so its silhouette must read as a shape "
+    "on its own, separated from the background by tone and not by an outline alone. "
+    "Leave at least a third of the frame as quiet, near-empty ground: empty space is what makes a subject look "
+    "chosen rather than cropped, and a frame filled edge to edge has no subject at all. "
+    "One moment, one place, one continuous space - never a collage, a split screen, a before-and-after pair, a grid "
+    "of panels, an inset, or a row of icons. "
+    "At most {elements} besides the subject; if the sentence names more, draw the ones it turns on and leave "
+    "the rest out."
+)
+
+# What the subject is called when the director did not name one - an older
+# manifest, or a model that skipped the field. The rest of the block still
+# applies: an unnamed subject is still one subject.
+DEFAULT_SUBJECT = "the person or thing this sentence is about"
 
 MAX_COPY_CHARACTERS = 1800
 DEFAULT_SCENE_CHARACTERS = 22
@@ -415,7 +482,11 @@ MAX_IMAGE_CONCURRENCY = 8
 # 7 added `moods`: the director's reading of the copy, which the music is
 # chosen from. A manifest without one falls back to reading the copy itself,
 # so an older run still gets a bed rather than an error.
-MANIFEST_VERSION = 7
+# 8 added each scene's `subject`: the one thing its frame is about. A scene
+# without one still composes - the subject is named generically - but the
+# picture is only as focused as the description it was given, so a resume
+# from v7 keeps the flatter images it already paid for.
+MANIFEST_VERSION = 8
 
 NARRATION_SUBTITLE_TRACK = "narration_subtitles"
 TITLE_OVERLAY_TRACK = "title_overlay"
@@ -581,6 +652,11 @@ class Character:
 class Scene:
     text: str
     image_prompt: str
+    # The one thing the frame is about, named by the director as a thing that
+    # can be drawn. It is what COMPOSITION builds its hierarchy around, and
+    # asking for it separately is what stops the image prompt from being a
+    # list of everything in the sentence.
+    subject: str = ""
     shot_size: str = DEFAULT_SHOT_SIZE
     pause_after: bool = False
     cast: list[str] = field(default_factory=list)
@@ -589,8 +665,8 @@ class Scene:
     duration_us: int | None = None
 
 
-SCENE_FIELDS = ("text", "image_prompt", "shot_size", "pause_after", "cast",
-                "audio_path", "image_path", "duration_us")
+SCENE_FIELDS = ("text", "image_prompt", "subject", "shot_size", "pause_after",
+                "cast", "audio_path", "image_path", "duration_us")
 
 
 @dataclass
@@ -1805,13 +1881,19 @@ def compose_image_prompt(cfg: Config, scene: Scene, characters: list[Character])
     framing = SHOT_SIZES.get(scene.shot_size, SHOT_SIZES[DEFAULT_SHOT_SIZE])
     medium = getattr(cfg, "style", None)
     medium = medium.medium if medium else DEFAULT_STYLE_MEDIUM
+    composition = COMPOSITION.format(
+        subject=(scene.subject or "").strip().rstrip(".") or DEFAULT_SUBJECT,
+        height=framing.subject_height,
+        elements=(f"{framing.elements} supporting elements" if framing.elements != 1
+                  else "one supporting element"),
+    )
     return (
         f"{scene.image_prompt.strip().rstrip('.')}. Usage: one 16:9 frame rendered as {medium}, matched directly "
         "to this exact subtitle. "
-        f"{framing} "
+        f"{framing.brief} "
+        f"{composition} "
         f"{cast_block}{style}. Depict the concrete moment, people, action, setting, and emotion described by this subtitle. "
-        "Include only the people, objects, and surroundings needed to communicate the complete subtitle; keep the composition natural "
-        "and narrative, and do not visually overemphasize one incidental detail. Keep all screens, signs, documents, packaging, and "
+        "Keep all screens, signs, documents, packaging, and "
         "interfaces blank. No visible text, letters, digits, punctuation, "
         "logos, watermarks, subtitles, or fake interface copy."
     )
@@ -1851,6 +1933,44 @@ def storyboard_batches(copy: str, batch_size: int = 360) -> list[str]:
     return batches or [copy]
 
 
+# What a frame is allowed to be about, and how it should read to somebody
+# who is not looking for anything.
+#
+# Two failures this is written against, both of them things the model does by
+# default rather than by accident:
+#
+# "One image per sentence" is read as "everything in the sentence, in one
+# image". A sentence naming a person, a place, a time and a feeling came back
+# as four things drawn at the same size. Naming ONE subject as a separate
+# field is what breaks that - a field has to be filled with one answer, where
+# a description can quietly hold four.
+#
+# And an abstract sentence is illustrated with the stock of the idea: a
+# balance, a clock, a maze, a lightbulb, gears, a head full of arrows. Those
+# are the images a model reaches for and close to the last ones a general
+# audience wants to look at. The rule below is that the picture is of people
+# doing things, and the abstraction is carried by what they are doing.
+DIRECTION = (
+    "Frame. Every scene is one picture with one subject, and \"subject\" names it: two to five English words for "
+    "something that can be drawn - a person, an object, a place - such as \"a woman at a kitchen table\" or \"a "
+    "cracked phone screen\". Never an abstraction (\"pressure\", \"regret\", \"the economy\"), never a whole scene, "
+    "never two things joined by \"and\". If the sentence has no subject that can be named as a thing, choose the "
+    "person it happens to. "
+    "Write image_prompt as one sentence of at most 30 words: the subject, the single action it is doing, and the "
+    "few things around it that the sentence actually turns on. It is a description of one picture, not a summary "
+    "of the sentence - leave out anything the picture does not need to show. "
+    "Audience. These are watched on a phone and judged in the first half-second, so take the reading a general "
+    "viewer finds attractive and immediately legible rather than the cleverest one. Prefer a person doing something "
+    "concrete over an object, and an object over a diagram or a metaphor; when the sentence is about how somebody "
+    "feels, the picture is that person's face. Keep poses and expressions ordinary and readable - no theatrical "
+    "gesturing, no crowds, no empty stages. "
+    "Never illustrate an idea with a pile of symbols - scales, clocks, mazes, lightbulbs, brains, gears, arrows, "
+    "question marks, chess pieces, puppet strings - and never put two metaphors in one frame. "
+    "Never describe a collage, a split screen, a before-and-after pair, a grid of panels, an inset or a row of "
+    "icons: one moment, in one place, in one continuous space."
+)
+
+
 def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
                       batch_target: int, batch_maximum: int,
                       known_characters: list[Character]) -> str:
@@ -1883,23 +2003,38 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         f"{cfg.style.medium}. "
         f"Split this part ({batch_number}/{batch_count}) of the copy into about {batch_target} independent subtitle scenes, "
         f"never more than {batch_maximum}. {length_instruction}Preserve the complete meaning and original order. "
-        "One subtitle scene must map to exactly one image. For every scene, write image_prompt as one concise, coherent English "
-        "natural-language description of the image that best matches only that scene's Chinese subtitle. First follow the people, "
-        "objects, action, location, time, mood, and relationship explicitly present in the subtitle. If the subtitle describes a "
-        "concrete event, depict that event literally in a believable everyday setting. If it is abstract, use the simplest human "
-        "situation that communicates the whole sentence without changing its meaning. The scene content should feel true to life, "
-        f"but every frame must remain {cfg.style.medium}, never {cfg.style.avoid}. Do not force a finance theme. "
+        "One subtitle scene must map to exactly one image. "
+        f"{DIRECTION} "
+        "If the subtitle describes a concrete event, depict that event literally in a believable everyday setting. If it is "
+        "abstract, use the simplest human situation that communicates the sentence without changing its meaning. The scene "
+        f"content should feel true to life, but every frame must remain {cfg.style.medium}, never {cfg.style.avoid}. "
+        "Do not force a finance theme. "
         "Never add charts, tables, dashboards, graphs, market arrows, coins, banks, office imagery, or decorative business symbols "
-        "unless that exact subtitle genuinely calls for them. Do not visually magnify an incidental word at the expense of the full "
-        "sentence. Favor a natural human moment and a clear action over abstract icons or infographic composition. Keep screens, "
+        "unless that exact subtitle genuinely calls for them. "
+        # What this used to say was "do not visually magnify an incidental
+        # word at the expense of the full sentence", which is the right worry
+        # and the wrong instruction: read as written it forbids emphasising
+        # anything, and the frames came back with nothing emphasised at all.
+        # The subject is still chosen to carry the sentence - it just has to
+        # be one thing rather than an even spread of five.
+        "The subject has to be what the sentence is actually about, not a passing noun in it: a sentence about a decision "
+        "is not a picture of the desk it was made at. "
+        "Keep screens, "
         "signs, documents, packaging, and interfaces blank; do not request visible text, letters, digits, punctuation, logos, "
         "watermarks, subtitles, speech bubbles, or fake interface copy. "
         f"{cast_instruction}"
         "Set \"cast\" on each scene to the ids of the characters visible in that panel, or [] if nobody recurring appears. "
-        "Set \"shot_size\" to vary the framing the way an editor would, never leaving it on one value for long: "
-        "\"wide\" to open a section, establish a place, or carry a sentence about society or the world at large; "
-        "\"medium\" as the default for describing an event; \"close\" for a feeling, a decision, a turn, or a "
+        "Set \"shot_size\" to vary the framing the way an editor would, never leaving it on one value for long. "
+        "\"wide\" opens a section, establishes a place, or carries a sentence about society or the world at large; "
+        "\"medium\" is the default for describing an event; \"close\" is for a feeling, a decision, a turn, or a "
         "conclusion, where the face is the point. Aim for roughly one wide and one close in every four scenes. "
+        # The cap the picture is actually drawn to, quoted from the same table
+        # the image prompt reads. A brief that asks for five things in a
+        # close-up is a brief the frame has to throw four of away.
+        "Each framing limits what may share the frame: "
+        + "; ".join(f'{name} allows at most {size.elements} besides the subject'
+                    for name, size in SHOT_SIZES.items())
+        + ". "
         "Set \"pause_after\" to true on the scene that ends a paragraph or a complete thought, so the video can "
         "take a breath there; leave it false inside a paragraph. "
         # The music bed is chosen from this, and it costs nothing: one more
@@ -1909,7 +2044,8 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         f"feels, most telling first, and use these words exactly: {'、'.join(BGM_MOODS)}. "
         'Return JSON only: {"characters":[{"id":"A","desc":"English description"}],'
         '"mood":["紧张"],'
-        '"scenes":[{"text":"Chinese scene copy","image_prompt":"English image prompt",'
+        '"scenes":[{"text":"Chinese scene copy","subject":"a woman at a kitchen table",'
+        '"image_prompt":"English image prompt",'
         '"shot_size":"medium","pause_after":false,"cast":["A"]}]}'
     )
 
@@ -1940,8 +2076,15 @@ def scenes_from_payload(data: dict[str, Any]) -> list[Scene]:
         shot_size = shot_size.strip().lower() if isinstance(shot_size, str) else ""
         if shot_size not in SHOT_SIZES:
             shot_size = DEFAULT_SHOT_SIZE
+        # Missing rather than invalid: a scene is usable without one, and
+        # refusing a whole batch over a field the model skipped would throw
+        # away the storyboard it did write. compose_image_prompt names the
+        # subject generically instead.
+        subject = item.get("subject")
+        subject = subject.strip() if isinstance(subject, str) else ""
         scenes.append(Scene(text=text.strip(), image_prompt=image_prompt.strip(),
-                            shot_size=shot_size, pause_after=bool(item.get("pause_after")),
+                            subject=subject, shot_size=shot_size,
+                            pause_after=bool(item.get("pause_after")),
                             cast=cast))
     return scenes
 
