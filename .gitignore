@@ -27,3 +27,9 @@ assets/*
 # the opening cue ships: it is the sound these videos are known by, and
 # nothing synthesises a stand-in for it
 !assets/opening_dong.mp3
+# The music library is yours, not the repository's. The folder's README is
+# tracked so the naming convention travels with the code; the audio in it is
+# licensed to whoever collected it and must not be published here.
+!assets/bgm/
+assets/bgm/*
+!assets/bgm/README.md
