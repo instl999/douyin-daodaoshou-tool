@@ -27,9 +27,8 @@ assets/*
 # the opening cue ships: it is the sound these videos are known by, and
 # nothing synthesises a stand-in for it
 !assets/opening_dong.mp3
-# The music library is yours, not the repository's. The folder's README is
-# tracked so the naming convention travels with the code; the audio in it is
-# licensed to whoever collected it and must not be published here.
+# The music library is tracked, unlike the rest of assets/. Un-ignoring the
+# folder is what lets a track added later be picked up by `git add`; excluding
+# it would leave the ones already committed in place and silently skip the
+# next one.
 !assets/bgm/
-assets/bgm/*
-!assets/bgm/README.md

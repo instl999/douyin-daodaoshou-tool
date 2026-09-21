@@ -1,11 +1,17 @@
 # BGM 曲库 / Music library
 
-**放这里的音乐不会被提交。** 仓库只跟踪这份说明；音频本身的授权属于收集它的人，
-公开仓库里不能分发。`.gitignore` 已经按这个规则配置好了。
+**这个文件夹里的音乐是随仓库提交的。** 放一首新的进来，按下面的命名规则改好文件名，
+`git add` 就会带上它。
 
-**The audio in this folder is never committed.** Only this README is tracked.
-The tracks are licensed to whoever collected them and must not be redistributed
-from a public repository; `.gitignore` is already set up that way.
+音频本身的版权属于各自的权利人 —— 仓库的 MIT 许可只覆盖代码，不覆盖这里的音乐。
+要在别处分发或商用，请自行确认你持有相应授权。
+
+**The audio in this folder is committed with the repository.** Drop a new track
+in, name it by the rule below, and `git add` will pick it up.
+
+The tracks remain the property of their respective rights holders — the
+repository's MIT licence covers the code, not the music here. Confirm you hold
+the rights before redistributing or using them commercially.
 
 ---
 
