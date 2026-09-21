@@ -1178,19 +1178,66 @@ def test_one_picture_of_one_moment_not_a_layout():
         assert "grid of panels" in text
 
 
-def test_the_director_must_name_a_thing_rather_than_an_idea():
-    """A named abstraction is where the pile of symbols comes from."""
+def _brief():
     class _Cfg(_StubConfig):
         style = acd.STYLE_PRESETS[acd.DEFAULT_STYLE_PRESET]
         scene_length_mode = "density"
         scene_characters = 22
 
-    brief = acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+    return acd.storyboard_prompt(_Cfg(), 1, 1, 8, 10, [])
+
+
+def test_the_director_must_name_a_thing_rather_than_an_idea():
+    """A named abstraction is where the pile of symbols comes from."""
+    brief = _brief()
     assert '"subject" names it' in brief
     assert "Never an abstraction" in brief
-    # The stock imagery of an idea, which is what a model reaches for first.
-    for symbol in ("scales", "clocks", "mazes", "lightbulbs", "gears"):
-        assert symbol in brief
+
+
+def test_a_place_or_an_object_is_as_valid_a_subject_as_a_person():
+    """The bug the reference frames showed: a person in nearly every shot.
+
+    A person was being chosen three separate times over - as the fallback for
+    an abstract line, as an explicit preference over objects, and again
+    whenever the sentence was about feeling. On copy that is entirely about
+    feeling, that is every frame.
+    """
+    brief = _brief()
+    assert "Do not default to a person" in brief
+    for kind in ("PLACE", "OBJECT", "PERSON"):
+        assert kind in brief, kind
+    # And the preferences that produced the bug are gone, not merely balanced.
+    assert "Prefer a person doing something concrete over an object" not in brief
+    assert "the picture is that person's face" not in brief
+    assert "choose the person it happens to" not in brief
+
+
+def test_the_director_has_to_furnish_the_room():
+    """"Bring the scene to life" is furniture and a light source, not a mood.
+
+    An unfurnished frame is what makes a subject look cut out and pasted on,
+    and it is the difference between the reference frames and a sprite on a
+    gradient.
+    """
+    brief = _brief()
+    assert "somewhere specific and furnished" in brief
+    assert "one light source" in brief
+
+
+def test_one_symbol_in_a_real_room_is_allowed_again():
+    """The blanket ban overshot what it was written against.
+
+    The reference account does use a symbolic figure - a silhouette in a
+    doorway, a crack of red light under a door - and they work because they
+    sit inside a real space. What does not work is the same shapes floating on
+    nothing, which is all the rule needs to forbid.
+    """
+    brief = _brief()
+    assert "At most one symbolic element per frame" in brief
+    assert "has to live in the room" in brief
+    # The part that was always right stays.
+    for banned in ("collage", "split screen", "grid of panels"):
+        assert banned in brief, banned
 
 
 def test_the_subject_survives_the_storyboard_and_the_manifest():
@@ -1209,20 +1256,33 @@ def test_the_subject_survives_the_storyboard_and_the_manifest():
 # ----------------------------------------- the default style's hierarchy ---
 
 
-def test_the_default_style_asks_for_line_weight_to_do_the_work():
-    """Uniform line weight is the absence of hierarchy.
+def test_the_default_style_paints_the_subject_and_draws_the_room():
+    """Colour is the focal device, measured off the reference frames.
 
-    Every line the same thickness and hatching everywhere means the subject,
-    the back wall and a chair are drawn with equal emphasis, and the panel
-    reads as a field of marks rather than as a picture. Line weight is the one
-    tool a single-colour line style has for saying what matters.
+    The room is white contour line on navy; the subject and the props the
+    sentence turns on are painted on top of it. Whatever is painted is what
+    the frame is about. The preset used to ask for the opposite - white line
+    everywhere, no painted areas at all, one or two spot accents - which is
+    both the wrong look and no hierarchy.
     """
+    preset = acd.STYLE_PRESETS["midnight"]
+    assert "FULL COLOUR" in preset.prompt
+    assert "white contour line" in preset.prompt
+    assert "black ink outlines" in preset.prompt
+    # The old contract, gone rather than contradicted.
+    assert "Single-colour white line illustration" not in preset.prompt
+    assert "no filled colour areas" not in preset.prompt
+    # A full-colour panel must not now be listed as something to avoid.
+    assert "full-colour painting" not in preset.avoid
+    # And somewhere for the eye to rest, so the panel is not wall-to-wall.
+    assert "unbroken navy" in preset.prompt
+
+
+def test_the_default_style_still_says_where_the_light_comes_from():
+    """One warm source against the navy is what stops it reading as flat."""
     prompt = acd.STYLE_PRESETS["midnight"].prompt
-    assert "not one line weight" in prompt
-    assert "no uniform line weight" in prompt
-    assert "even weight" not in prompt
-    # And somewhere for the eye to rest, so the drawing is not wall-to-wall.
-    assert "unbroken navy" in prompt
+    assert "one warm practical light source" in prompt.lower()
+    assert "silhouette" in prompt
 
 
 def test_the_shipped_styles_file_matches_the_built_in_default():

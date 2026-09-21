@@ -64,7 +64,9 @@ This is what separates it from a batch image slideshow.
 | --- | --- |
 | **One subject per frame** | Each shot names a drawable subject first, then composes around it: subject largest and sharpest, support visibly subordinate, a third of the frame left quiet. Still readable an inch wide |
 | **Framing sets the budget** | 4 supporting elements wide, 2 medium, 1 close — the same cap given to the director and to the image model |
-| **Composed for a general audience** | People doing concrete things first; no illustrating an idea with scales, clocks, mazes, lightbulbs or gears, and no collages or split screens |
+| **The subject is not always a person** | A place, an object and a person rank equally; a sentence about feeling is often carried by the room rather than by a face, and every batch must include frames whose subject is a place or an object |
+| **Rooms somebody lives in** | Every frame is set somewhere specific and furnished, with the two or three props that say whose room it is and what time it is, and one light source |
+| **Composed for a general audience** | At most one symbolic element per frame and it has to live in the room — a silhouette in a doorway reads, a row of floating icons does not; no collages or split screens |
 | **Consistent art direction** | One style prompt for the whole video: nine presets (see `styles.json`, editable and extensible), or write your own |
 | **A style brings its own fittings** | Switching style also switches what the storyboard director is told it is drawing, the whole-video filter, and the title colourway — no more picking film noir and getting a director who still writes flat comic panels |
 | **Measured title typography** | The title block is centred, broken onto two or three lines and coloured line by line, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
@@ -224,25 +226,48 @@ picture is allowed to draw:
 
 **And the reading is chosen for a general audience, not for cleverness.** The
 director is told: these are watched on a phone and judged in the first
-half-second; prefer a person doing something concrete over an object, and an
-object over a diagram or a metaphor; when the sentence is about how somebody
-feels, the picture is that person's face. Never illustrate an idea with a pile
-of symbols - scales, clocks, mazes, lightbulbs, brains, gears, arrows, question
-marks, chess pieces, puppet strings - and never put two metaphors in one frame.
+half-second, so take the reading a general viewer finds legible over the
+cleverest one.
 
-### The default style: line weight does the sorting
+**It must not default to a person.** A place, an object and a person are
+equally valid subjects, and a sentence about how somebody feels is often better
+carried by the room they feel it in - an unmade bed, a cold meal, a door that
+stays shut - than by a face. A face is for when the expression *is* the
+information. Every batch has to include frames whose subject is a place or an
+object.
 
-`midnight` is pure line work, and it asked for `clean white contour lines of
-even weight` while hatching the whole panel. **Uniform weight is the absence of
-hierarchy**: the subject, the back wall and a chair come out drawn with equal
-emphasis. Line weight and line density are the only tools a single-colour line
-style has for saying what matters, and both were switched off.
+**And the room has to be furnished.** The director names the room, puts the two
+or three ordinary props in it that say whose room it is and what time it is, and
+gives it one light source. An empty backdrop reads as a cut-out.
 
-Now the subject carries a heavy contour and nearly all the detail, support is
-thinner and plainer, the background is the lightest and sparsest line in the
-picture, hatching concentrates on the subject and thins to nothing outward, and
-**large areas of the panel are left as unbroken navy with no line in them at
-all**.
+At most one symbolic element per frame, and it has to live in the room: a
+silhouette standing in a doorway reads; a row of icons on a blank ground does
+not. No diagrams, charts or floating clusters of objects.
+
+### The default style: what is painted is the subject
+
+The reference frames are not line art. The room — walls, window frames, doors,
+floor, the edges of furniture — is **white contour line** on deep navy, and the
+subject plus the two or three props the sentence turns on are **painted in full
+colour** on top of it: flat cel fills inside confident black ink outlines,
+believable skin tones, ordinary clothing colour.
+
+**That contrast is the composition.** Whatever is painted is what the frame is
+about; whatever is left as white line is the room it happens in. One warm
+practical light source — a lamp, a window, a screen — lays warm amber across
+the subject while the surrounding navy reads as the cool shadow it sits in. One
+saturated accent carries the emotional beat: a red crack of light under a door,
+a pink note, a warm family photograph. A figure who is present but is not the
+subject is a solid dark silhouette.
+
+The preset used to ask for the opposite — `Single-colour white line
+illustration`, `no filled colour areas and no grey wash`, one or two spot
+accents. That is neither the reference look nor a hierarchy: it switched off
+**colour**, which is the strongest tool the frame has for saying what matters.
+
+So: the subject is painted, largest and most detailed; support is simpler and
+less coloured; the room stays white line. And **large areas of the panel are
+left as unbroken navy with neither line nor colour in them**.
 
 > The change lands in the built-in default *and* in the repository's
 > `styles.json`. The file wins at runtime, so editing only the code would have
@@ -579,7 +604,9 @@ The suite covers every piece of logic that does not call a paid API:
 - The stacked title: block centring, line pitch, per-line colour, and shrinking rather than wrapping when it is too long
 - The frame's subject: it reaches the prompt, it falls back when absent, the element budget and subject size track the framing, and neither end may ask for a collage
 - What the director is held to: naming a drawable thing, no symbol piles, and the same element budget the picture is drawn to
-- The default style no longer asks for uniform line weight, and `styles.json` agrees with the built-in default
+- The default style paints the subject and draws the room, and the old "single-colour, no filled colour areas" clauses are gone rather than contradicted
+- The director: places and objects rank with people, no defaulting to a person, a furnished room is required, and at most one symbol that lives in it
+- `styles.json` agrees with the built-in default
 - Style completeness: nine presets each carrying `medium` / `avoid` / `grade` / `title`, and the backward-compatible string form
 - Storyboard JSON tolerance, framing and paragraph-mark parsing
 - One integration test that builds a real draft from synthetic media and asserts against the parsed `draft_content.json`

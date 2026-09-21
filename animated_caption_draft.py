@@ -203,26 +203,26 @@ STYLE_PRESETS: dict[str, StylePreset] = {
     # Every panel is drawn with the same single line, so images generated hours
     # apart still cut together -- which is the reason it is the default.
     "midnight": StylePreset(
-        label="深蓝白描",
+        label="深蓝彩漫",
         prompt=(
-            "Single-colour white line illustration on a flat deep midnight-blue ground, drawn with one pen but not one "
-            "line weight: the subject carries a confident heavy contour and almost all of the detail, supporting "
-            "objects are drawn thinner and plainer, and the background is the lightest and sparsest line in the "
-            "picture, so weight alone says what matters. Volume and shadow built from fine parallel hatching and "
-            "cross-hatching like a steel engraving, concentrated on and immediately around the subject and thinning to "
-            "nothing further out; no filled colour areas and no grey wash, the bare navy itself reading as shadow. "
-            "Large areas of the panel left as unbroken navy with no line in them at all - the drawing must not run "
-            "edge to edge. Semi-realistic adults with confident anatomy, simple strongly readable silhouettes and "
-            "clear body language, faces drawn in few lines and barely shaded. One subject, held large and central, "
-            "with wide empty navy around it and only a horizon or two suggested walls for depth. Exactly one or two "
-            "elements carry a flat saturated spot colour -- gold, crimson, amber or magenta -- and it goes on the "
-            "subject or on the one thing the sentence turns on, never on scenery; everything else stays white on navy, "
-            "with a soft glow only where there is a light source. Even fine grain across the whole panel. Editorial, "
-            "symbolic, calm. Not photorealistic, no 3D render, no full-colour painting, no watercolour, no black "
-            "outlines, no pale or white background, no busy all-over line texture, no uniform line weight, 16:9"
+            "Contemporary Chinese comic panel on a deep midnight-blue ground, with colour used as the focal point. The "
+            "room itself - walls, window frames, doors, floor, the edges of furniture - is drawn as clean white "
+            "contour line on bare navy with no fill, like a drawing of the space; the subject and the two or three "
+            "props the sentence turns on are painted in FULL COLOUR on top of it, flat cel fills inside confident "
+            "black ink outlines, believable skin tones and ordinary clothing colour. That contrast is the composition: "
+            "whatever is painted is what the frame is about, and whatever is left as white line is the room it happens "
+            "in. One warm practical light source - a lamp, a window, a screen - laying warm amber across the subject, "
+            "the surrounding navy reading as the cool shadow it sits in. One saturated accent carries the emotional "
+            "beat: a red crack of light under a door, a pink note, a warm family photograph. A figure who is present "
+            "but is not the subject is a solid dark silhouette. Semi-realistic contemporary adults with simple "
+            "readable silhouettes and faces that act in few lines. Large areas of unbroken navy left with no line and "
+            "no colour in them at all - the drawing must not run edge to edge. Editorial, emotional, grounded. Not "
+            "photorealistic, no 3D render, no watercolour, no pale or white background, no all-over line texture, no "
+            "uniform line weight, 16:9"
         ),
-        medium="a white line drawing on a deep midnight-blue ground",
-        avoid="photography, 3D rendering, full-colour painting, or a pale background",
+        medium=("a contemporary Chinese comic panel - the room in white line on a deep "
+                "midnight-blue ground, the subject painted in full colour"),
+        avoid="photography, 3D rendering, or a pale washed-out background",
         grade="深蓝电影感",
         title="crimson",
     ),
@@ -433,8 +433,9 @@ SHOT_SIZES = {
     ),
     "close": Framing(
         brief=(
-            "Close-up: the face and shoulders fill the frame, the expression is the subject, the background "
-            "reduced to two or three simple shapes with no detail of their own."
+            "Close-up: the subject fills the frame - a face, a pair of hands, a single object - and the "
+            "background is reduced to two or three simple shapes with no detail of their own. A close-up is "
+            "not automatically a face; hands on a keyboard or a phone on a duvet is the same shot."
         ),
         elements=1,
         subject_height="filling at least three quarters of the frame height",
@@ -454,9 +455,10 @@ DEFAULT_SHOT_SIZE = "medium"
 # than as a picture.
 COMPOSITION = (
     "Composition. The frame has exactly one subject and it is {subject}, drawn {height}: the largest thing in the "
-    "picture, the sharpest, the most detailed, and the one with the most contrast against what is behind it, placed "
-    "either dead centre or on a rule-of-thirds intersection. Everything else is support and has to look subordinate "
-    "- smaller, flatter, fewer marks, less contrast - and nothing may overlap or crowd the subject's outline. "
+    "picture, the sharpest, the most detailed, the most fully coloured, and the one with the most contrast against "
+    "what is behind it, placed either dead centre or on a rule-of-thirds intersection. Everything else is support "
+    "and has to look subordinate - smaller, flatter, fewer marks, less colour, less contrast - and nothing may "
+    "overlap or crowd the subject's outline. "
     "The subject has to stay identifiable with the whole frame an inch wide, so its silhouette must read as a shape "
     "on its own, separated from the background by tone and not by an outline alone. "
     "Leave at least a third of the frame as quiet, near-empty ground: empty space is what makes a subject look "
@@ -1951,23 +1953,40 @@ def storyboard_batches(copy: str, batch_size: int = 360) -> list[str]:
 # audience wants to look at. The rule below is that the picture is of people
 # doing things, and the abstraction is carried by what they are doing.
 DIRECTION = (
-    "Frame. Every scene is one picture with one subject, and \"subject\" names it: two to five English words for "
-    "something that can be drawn - a person, an object, a place - such as \"a woman at a kitchen table\" or \"a "
-    "cracked phone screen\". Never an abstraction (\"pressure\", \"regret\", \"the economy\"), never a whole scene, "
-    "never two things joined by \"and\". If the sentence has no subject that can be named as a thing, choose the "
-    "person it happens to. "
-    "Write image_prompt as one sentence of at most 30 words: the subject, the single action it is doing, and the "
-    "few things around it that the sentence actually turns on. It is a description of one picture, not a summary "
-    "of the sentence - leave out anything the picture does not need to show. "
+    "Frame. Every scene is one picture with one subject, and \"subject\" names it in two to five English words. "
+    "A subject is a thing that can be drawn, and it is equally allowed to be a PLACE (\"a lit kitchen at midnight\", "
+    "\"a banquet table after everyone has gone\"), an OBJECT (\"a cracked photo frame\", \"a phone face-down on a "
+    "duvet\"), or a PERSON (\"a woman at a kitchen table\"). Never an abstraction (\"pressure\", \"regret\"), and "
+    "never two things joined by \"and\". "
+    # The failure this replaces: a person was being chosen three times over -
+    # as the fallback for an abstract line, as an explicit preference over
+    # objects, and again whenever a sentence was about feeling. On copy that
+    # is entirely about feeling, that is every frame.
+    "Do not default to a person. Across each batch, some frames must have a place or an object as their subject, "
+    "and a sentence about how somebody feels is often better carried by the room they feel it in - an unmade bed, "
+    "a cold meal, a door that stays shut - than by a face. Use a face when the expression IS the information. "
+    "Write image_prompt as one sentence of at most 30 words: the subject, the single action or state it is in, and "
+    "the few things around it the sentence turns on. It is a description of one picture, not a summary of the "
+    "sentence. "
+    # "Bring the scene to life" is not a mood word - it is furniture, a light
+    # source and a real room. An unfurnished frame is what makes a subject
+    # look cut out and pasted on.
+    "Set the picture somewhere specific and furnished. Name the room and put the two or three ordinary props in it "
+    "that say whose room it is and what time it is - a hallway light left on, a wedding photo, dishes not cleared, "
+    "a jacket over a chair - and give it one light source to sit in. An empty backdrop reads as a cut-out; a room "
+    "that somebody lives in is most of what makes a frame worth watching. "
     "Audience. These are watched on a phone and judged in the first half-second, so take the reading a general "
-    "viewer finds attractive and immediately legible rather than the cleverest one. Prefer a person doing something "
-    "concrete over an object, and an object over a diagram or a metaphor; when the sentence is about how somebody "
-    "feels, the picture is that person's face. Keep poses and expressions ordinary and readable - no theatrical "
-    "gesturing, no crowds, no empty stages. "
-    "Never illustrate an idea with a pile of symbols - scales, clocks, mazes, lightbulbs, brains, gears, arrows, "
-    "question marks, chess pieces, puppet strings - and never put two metaphors in one frame. "
-    "Never describe a collage, a split screen, a before-and-after pair, a grid of panels, an inset or a row of "
-    "icons: one moment, in one place, in one continuous space."
+    "viewer finds attractive and immediately legible rather than the cleverest one. Keep poses and expressions "
+    "ordinary - no theatrical gesturing, no crowds, no empty stages. "
+    # Narrowed deliberately. The reference account DOES use a symbolic figure -
+    # a silhouette at the edge of a room, a net, a crack of red light under a
+    # door - and they work because they sit inside a real space. What does not
+    # work is the same shapes floating on nothing, which is what "a pile of
+    # symbols" was written against and what the earlier blanket ban overshot.
+    "At most one symbolic element per frame, and it has to live in the room: a silhouette standing in a doorway "
+    "reads, a row of icons on a blank ground does not. Never a diagram, a chart, a floating cluster of objects, a "
+    "collage, a split screen, a before-and-after pair, a grid of panels or an inset - one moment, in one place, in "
+    "one continuous space."
 )
 
 
