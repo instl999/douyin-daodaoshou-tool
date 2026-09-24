@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from urllib3.exceptions import NewConnectionError
 
 
 def _use_utf8_stdout() -> None:
@@ -1874,7 +1875,33 @@ def ensure_ok(response: requests.Response, what: str) -> requests.Response:
     return response
 
 
-def request_with_retry(method: str, url: str, *, retry_on_timeout: bool = True, **kwargs: Any) -> requests.Response:
+def never_sent(exc: Exception) -> bool:
+    """Whether a failed request provably never reached the server.
+
+    A connect timeout, or a connection refused or unresolvable, fails before a
+    byte of the request is written. Anything later - a read timeout, a
+    connection dropped mid-response, the "SSL EOF" this network path produces
+    - can come after the server has accepted the work and billed it.
+    """
+    if isinstance(exc, requests.ConnectTimeout):
+        return True
+    if not isinstance(exc, requests.ConnectionError):
+        return False
+    reason = exc.args[0] if exc.args else None
+    # requests wraps urllib3's MaxRetryError, which carries the real cause.
+    return isinstance(getattr(reason, "reason", reason), NewConnectionError)
+
+
+def request_with_retry(method: str, url: str, *, idempotent: bool = True, **kwargs: Any) -> requests.Response:
+    """Send a request, retrying rate limits, server errors and network failures.
+
+    `idempotent=False` is for a request that creates billed work. A timed-out
+    POST may already have been accepted upstream, and sending it again pays a
+    second time and orphans the first job - so such a request is retried only
+    when the failure proves the first attempt never arrived, and otherwise
+    fails for --resume to make up. Paying once more for one missing frame is
+    the recoverable mistake; paying twice for every slow one is not.
+    """
     kwargs.setdefault("timeout", 60)
     for attempt in range(3):
         try:
@@ -1888,12 +1915,10 @@ def request_with_retry(method: str, url: str, *, retry_on_timeout: bool = True, 
             time.sleep(wait)
             continue
         except (requests.Timeout, requests.ConnectionError) as exc:
-            # A timed-out POST may already have been accepted upstream. For
-            # endpoints that create a billed task, retrying would pay twice and
-            # orphan the first task, so the caller can opt out.
-            if not retry_on_timeout:
+            if not idempotent and not never_sent(exc):
                 raise RuntimeError(
-                    f"Network request failed and was not retried (non-idempotent request): {exc}"
+                    "Network request failed after it may have reached the server, so it was not "
+                    f"sent again (a second attempt could be billed twice): {exc}"
                 ) from exc
             if attempt == 2:
                 raise RuntimeError(f"Network request failed after 3 attempts: {exc}") from exc
@@ -2442,6 +2467,9 @@ def generate_image(cfg: Config, prompt: str, target: Path, seed: int | None = No
         headers={"Authorization": f"Bearer {cfg.ark_api_key}", "Content-Type": "application/json"},
         json=payload,
         timeout=300,
+        # Billed per image. A request cut off after the server took it is not
+        # sent again; --resume draws what is missing.
+        idempotent=False,
     )
     ensure_ok(response, "Image generation")
     body = response.json()

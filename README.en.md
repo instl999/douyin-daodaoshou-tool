@@ -717,7 +717,7 @@ The suite covers every piece of logic that does not call a paid API:
 | Symptom | Fix |
 | --- | --- |
 | HTTP 429 | Lower `IMAGE_CONCURRENCY`. Errors carry the API's response body, so rate limiting and an empty balance are distinguishable |
-| SSL EOF / dropped connection | Retry later with `--resume`; drop to one worker if needed |
+| SSL EOF / dropped connection | Retry later with `--resume`; drop to one worker if needed. An image request cut off after the server may already have taken it is **not resent automatically** — a second attempt could bill the same frame twice; `--resume` draws only the missing ones |
 | `Network request failed after 3 attempts` at the storyboard | The old symptom of a model still thinking while the connection timed out. Thinking is now off and the call streams; if it persists, set `DEEPSEEK_API_KEY` |
 | Opening sound effect not found | Check `OPENING_SOUND_PATH` points at an existing MP3 or WAV |
 | Jianying folder not found | Only needed when the lookup fails: 全局设置 → 草稿位置 in Jianying shows the path to put in `JIAN_YING_DRAFT_DIR` |
