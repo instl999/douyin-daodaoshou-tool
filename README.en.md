@@ -38,7 +38,7 @@ Every problem is listed at once (no drafts folder, no key, no voice… numbered)
 python animated_caption_draft.py --draft-name my_story --title "Example title" --input copy.txt
 ```
 
-Open Jianying and `my_story` is waiting in the draft list.
+Open Jianying and `my_story` is waiting in the draft list. The run ends on a summary: scenes, paragraphs and length; how many lines were read and frames drawn this run, how many were reused and roughly what they cost; the music chosen, and the style and title colouring used — written to `run.log` as well.
 
 ---
 

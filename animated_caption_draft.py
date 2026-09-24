@@ -2971,8 +2971,12 @@ def validate_plan_target(asset_root: Path, draft_name: str, replace: bool) -> No
 def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool,
                 title: str, title_audio: Path | None = None,
                 opening_sound: Path | None = None,
-                bgm: Path | None = None) -> Path:
+                bgm: Path | None = None,
+                report: dict[str, Any] | None = None) -> Path:
     """Write the draft. `bgm` is the track resolve_bgm settled on.
+
+    `report`, when given, is filled with what only the build knows: the
+    video's length, and whether the title's voice made it in.
 
     Falling back to cfg.bgm_path when it is None is not a second decision:
     resolve_bgm returns exactly that whenever BGM_PATH is set, so the two
@@ -3184,6 +3188,8 @@ def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool
 
     draft.save()
     write_draft_meta(cfg.draft_dir / draft_name, draft_name)
+    if report is not None:
+        report.update(duration_us=total_duration, title_voice=title_material is not None)
     return cfg.draft_dir / draft_name
 
 
@@ -3618,6 +3624,40 @@ def explain_reconciled(previous: dict[str, Any] | None, cfg: Config, found: Reco
     return lines
 
 
+# --------------------------------------------------------------- summary ----
+
+def format_length(microseconds: int) -> str:
+    seconds = microseconds / 1_000_000
+    return f"{seconds:.1f}s" if seconds < 60 else f"{int(seconds // 60)}:{seconds % 60:04.1f}"
+
+
+def run_summary(cfg: Config, scenes: list[Scene], *, duration_us: int, narration_read: int,
+                pictures_drawn: int, title_voice: str, music: str) -> list[str]:
+    """What a finished run made, what it reused, and what it cost - in one place.
+
+    Everything here was printed somewhere along the way, between progress bars
+    and retries. The end is where somebody - or an agent reading the output -
+    looks to see what they got.
+    """
+    total = len(scenes)
+    paragraphs = 1 + sum(scene.pause_after for scene in scenes[:-1])
+    cost = ""
+    if pictures_drawn and cfg.ark_image_cny_per_image is not None:
+        cost = f" (about CNY {pictures_drawn * cfg.ark_image_cny_per_image:.2f})"
+    label = f" {cfg.style.label}" if cfg.style.label else ""
+    colouring = "ramp" if cfg.title_ramp else "one colour per line"
+    return [
+        f"  Scenes      {total}, in {paragraphs} paragraph(s)",
+        f"  Length      {format_length(duration_us)} at {cfg.speed:.2f}x",
+        f"  Narration   {total} line(s) - {narration_read} read this run, {total - narration_read} reused; "
+        f"title voice {title_voice}",
+        f"  Pictures    {total} frame(s) - {pictures_drawn} drawn this run{cost}, {total - pictures_drawn} reused",
+        f"  Music       {music}",
+        f"  Look        {cfg.style_preset}{label}, grade {cfg.color_grade or 'none'}, "
+        f"title {cfg.title_style} ({colouring})",
+    ]
+
+
 # ----------------------------------------------------------------- state ----
 
 def save_run_state(asset_root: Path, draft_name: str, title: str, copy: str, scenes: list[Scene],
@@ -3878,9 +3918,9 @@ def main(argv: list[str] | None = None) -> int:
 
     pending_tts = [(index, scene) for index, scene in enumerate(scenes, 1)
                    if not scene.audio_path or not Path(scene.audio_path).is_file()]
+    completed_tts = 0
     if pending_tts:
         append_run_log(asset_root, "tts_started", count=len(pending_tts), workers=cfg.tts_concurrency)
-        completed_tts = 0
         report_progress("Voice-over", 0, len(pending_tts))
         with ThreadPoolExecutor(max_workers=min(cfg.tts_concurrency, len(pending_tts))) as executor:
             futures = {executor.submit(make_tts, index, scene): index for index, scene in pending_tts}
@@ -3913,10 +3953,13 @@ def main(argv: list[str] | None = None) -> int:
               "the same language if that is not what you want.")
 
     title_audio: Path | None = None
+    title_voice = "off"
     if cfg.speak_title and title.strip() and title_already_narrated(title, scenes):
         append_run_log(asset_root, "title_tts_skipped", reason="already said in the opening")
         print("Title voice-over skipped: the copy already opens by saying it.")
+        title_voice = "not needed: the copy opens by saying it"
     elif cfg.speak_title and title.strip():
+        title_voice = "reused"
         # Keyed like every other clip, not a fixed name. On the title's own
         # text: a fixed name meant resuming with a different --title spoke the
         # OLD title over the new one on screen, and the run looked entirely
@@ -3936,9 +3979,11 @@ def main(argv: list[str] | None = None) -> int:
                 append_run_log(asset_root, "title_tts_failed", error=str(exc))
                 print(f"Title voice-over failed, continuing without it: {exc}")
                 candidate = None
+                title_voice = "failed; the video opens without it"
             else:
                 append_run_log(asset_root, "title_tts_completed")
                 report_progress("Title voice", 1, 1)
+                title_voice = "read this run"
         title_audio = candidate if candidate and candidate.is_file() else None
 
     pending_images = [(index, scene) for index, scene in enumerate(scenes, 1)
@@ -4020,9 +4065,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"BGM: {bgm_reason}")
 
     report_progress("Draft", 0, 1)
+    built: dict[str, Any] = {}
     try:
         draft_path = build_draft(cfg, scenes, draft_name, args.replace, title,
-                                 title_audio, cfg.opening_sound_path, bgm_path)
+                                 title_audio, cfg.opening_sound_path, bgm_path, report=built)
     except Exception as exc:
         failure = {"stage": "draft", "error": str(exc)}
         failures.append(failure)
@@ -4033,7 +4079,14 @@ def main(argv: list[str] | None = None) -> int:
     failures = []
     save("completed")
     append_run_log(asset_root, "completed", draft_path=str(draft_path))
+    if title_audio is not None and not built.get("title_voice", True):
+        title_voice = "dropped: too long to read before the copy starts"
+    summary = run_summary(cfg, scenes, duration_us=built.get("duration_us", 0),
+                          narration_read=completed_tts, pictures_drawn=len(pending_images),
+                          title_voice=title_voice, music=bgm_reason)
     print(f"Done: {draft_path}")
+    print("\n".join(summary))
+    append_run_log(asset_root, "summary", lines=[line.strip() for line in summary])
     return 0
 
 
