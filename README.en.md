@@ -114,6 +114,7 @@ This is what separates it from a batch image slideshow.
 | **A style brings its own fittings** | Switching style also switches what the storyboard director is told it is drawing, the whole-video filter, and the title colourway — no more picking film noir and getting a director who still writes flat comic panels |
 | **Measured title typography** | The title block is centred and broken onto two or three lines, its colour running character by character from warm white into crimson, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
 | **Consistent cast** | The storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds |
+| **An anchor frame (optional)** | `IMAGE_REFERENCE=anchor`: one frame is drawn first and every other frame is drawn with it as a reference, so faces and palette are held by a picture, not only by words; experimental, off by default |
 | **Varied framing** | Wide / medium / close chosen per line — wide to open a section and establish a place, close for a feeling, a turn or a conclusion |
 | **One image, one whole shot** | Picture 1 runs to its end and picture 2 follows; an image is never cut into two segments |
 | **The camera follows the shot** | A close-up pushes in; a medium shot pushes in with a drift; a wide shot pulls out or pans so the place reveals itself; the last shot of a paragraph (and of the video) pulls out, stepping back into the beat that follows. Each framing takes its moves in turn and no two shots in a row move the same way. The moves used to rotate in order, so a pull-out could land on the close-up a paragraph builds to |
@@ -214,6 +215,25 @@ Notes:
   style will not fix a bad storyboard
 - `--check-config` prints the active style, its `medium`, where it was loaded from, and the resolved
   filter and title settings
+
+### Matching every frame to one (experimental, off by default)
+
+`IMAGE_REFERENCE=anchor` draws one frame first, on its own — the first shot to show the recurring
+cast, or the first shot if there is none — and sends every other frame with a copy of it, shrunk to a
+1280-wide JPEG, as a reference image (the images API's `image` field). The prompt says what the
+reference is for: **only the drawing style, the palette and the recurring people's faces, hair and
+clothes — not its composition, framing, subject or setting**. Without that line a reference reads as
+"draw this again", and every panel comes back as the same room.
+
+Why it is worth trying: by default the cast and the look are held together by words alone — the same
+character description and style prompt in every request — with a light grade over whatever drift gets
+through. A picture holds a face and a palette far better than a sentence does.
+
+Why it is off: it is only as good as the model's and the plan's support for reference images, and it
+has not been measured against the reference video the way everything else here has. An endpoint that
+rejects it fails with a message naming this setting (a rejected request is not billed); set it back to
+`off` and `--resume`. Check the console for whether a reference changes the price. It applies to
+frames drawn from then on — frames already drawn are not redrawn because it changed.
 
 ---
 
@@ -629,6 +649,7 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `TITLE_FONT` | `优设标题黑` | Title font |
 | `TITLE_SIZE` / `TITLE_Y` | `19.5` / `0` | Title size and position; defaults match the reference video |
 | `IMAGE_CONCURRENCY` | `3` | Image workers; lower it on HTTP 429 |
+| `IMAGE_REFERENCE` | `off` | `anchor` draws one frame first and sends it with every other frame as a reference (experimental; see [Matching every frame to one](#matching-every-frame-to-one-experimental-off-by-default)) |
 
 ### Layout coordinate units
 
@@ -718,6 +739,7 @@ The suite covers every piece of logic that does not call a paid API:
 - Caption wrap estimation and baseline compensation
 - Title line breaking: the reference title's real break point, the particle rules, digit runs kept whole, explicit newlines, the line ceiling
 - The stacked title: block centring, line pitch, and shrinking rather than wrapping when it is too long
+- The anchor frame: drawn first and alone, every other frame sent with a shrunk copy and the note on what it is for, nothing drawn against a failed anchor, and a refusing endpoint naming the setting
 - The title ramp: primary at the first character, accent at the last, each line holding its own end, every split run keeping the font, stroke and shadow, and `lines` mode and the two-ink colourways staying flat
 - The frame's subject: it reaches the prompt, it falls back when absent, the element budget and subject size track the framing, and neither end may ask for a collage
 - What the director is held to: naming a drawable thing, no symbol piles, and the same element budget the picture is drawn to
