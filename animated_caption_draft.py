@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import io
 import json
 import math
 import os
@@ -1556,6 +1557,8 @@ class Config:
     ark_image_cny_per_image: float | None
     image_concurrency: int
     image_style_prompt: str
+    # "anchor" draws one frame first and sends a copy with every other frame.
+    image_reference: str
     style_preset: str
     style: StylePreset
     styles_source: str
@@ -1628,6 +1631,10 @@ class Config:
         if subtitle_style not in {"plate", "outline", "box"}:
             raise RuntimeError("SUBTITLE_STYLE must be one of: plate, outline, box.")
 
+        image_reference = env_value("IMAGE_REFERENCE", "off").lower()
+        if image_reference not in IMAGE_REFERENCE_MODES:
+            raise RuntimeError(f"IMAGE_REFERENCE must be one of: {', '.join(IMAGE_REFERENCE_MODES)}.")
+
         # The art style is resolved first because it supplies the defaults for
         # the colour grade and the title colourway, which .env then overrides.
         style_presets, style_default, styles_source = load_style_presets()
@@ -1695,6 +1702,7 @@ class Config:
                 "IMAGE_CONCURRENCY", DEFAULT_IMAGE_CONCURRENCY, 1, MAX_IMAGE_CONCURRENCY
             ),
             image_style_prompt=env_value("IMAGE_STYLE_PROMPT", style.prompt),
+            image_reference=image_reference,
             style_preset=style_preset,
             style=style,
             styles_source=styles_source,
@@ -1991,6 +1999,8 @@ def describe_configuration(cfg: Config) -> None:
           f"{' (overridden by IMAGE_STYLE_PROMPT)' if os.getenv('IMAGE_STYLE_PROMPT', '').strip() else ''}"
           f"  [{cfg.styles_source}]")
     print(f"  rendered as: {cfg.style.medium}")
+    print("  reference:   " + ("anchor - one frame is drawn first and every other frame is matched to it "
+                               "(experimental)" if cfg.image_reference == "anchor" else "off"))
     print(
         f"Subtitle Y: {os.getenv('NARRATION_SUBTITLE_Y', DEFAULT_NARRATION_SUBTITLE_Y)} "
         f"-> transform_y {cfg.subtitle_y:.3f} -> {abs(subtitle_px)} px "
@@ -2122,7 +2132,9 @@ def get(url: str, **kwargs: Any) -> requests.Response:
 
 # ------------------------------------------------------------ storyboard ----
 
-def compose_image_prompt(cfg: Config, scene: Scene, characters: list[Character]) -> str:
+def compose_image_prompt(cfg: Config, scene: Scene, characters: list[Character],
+                         referenced: bool = False) -> str:
+    """The full image prompt. `referenced` when a reference frame goes with it (IMAGE_REFERENCE)."""
     style = cfg.image_style_prompt.strip().rstrip(".")
     lookup = {character.id: character.desc for character in characters}
     described = [lookup[cid] for cid in scene.cast if cid in lookup]
@@ -2150,6 +2162,7 @@ def compose_image_prompt(cfg: Config, scene: Scene, characters: list[Character])
         "Keep all screens, signs, documents, packaging, and "
         "interfaces blank. No visible text, letters, digits, punctuation, "
         "logos, watermarks, subtitles, or fake interface copy."
+        + (f" {REFERENCE_NOTE}" if referenced else "")
     )
 
 
@@ -2653,8 +2666,59 @@ def populate_audio_durations(scenes: list[Scene]) -> None:
 
 # ------------------------------------------------------------------ image ----
 
-def generate_image(cfg: Config, prompt: str, target: Path, seed: int | None = None) -> None:
-    """Draw one frame. `seed` is the scene's own (see image_seed), not the setting."""
+# Matching every frame to one picture (IMAGE_REFERENCE=anchor).
+#
+# The cast and the look are otherwise held together by words alone - the same
+# character description and style prompt in every request - with a light
+# grade laid over whatever drift gets through. Seedream can also be given a
+# picture to match, the images API's `image` field, and a picture holds a face
+# and a palette far better than a sentence does. So one frame, the anchor, is
+# drawn first on its own, and every other frame is sent with a copy of it.
+#
+# Off by default. It is only as good as the endpoint's support for reference
+# images, which varies by model and plan, and unlike everything else in this
+# file it has not been measured against the reference video. An endpoint that
+# rejects it fails the frame with a message naming this setting; nothing is
+# billed for a rejected request, and --resume carries on once it is off.
+IMAGE_REFERENCE_MODES = ("off", "anchor")
+# Wide enough to carry a face and a palette, small enough that sending it with
+# every frame costs nothing noticeable. The frames themselves are 2560 wide.
+REFERENCE_WIDTH = 1280
+# Without this a reference is read as "draw this again": the same room, the
+# same framing, frame after frame.
+REFERENCE_NOTE = (
+    "The attached reference image fixes only the drawing style, the palette and the recurring people's faces, "
+    "hair and clothes; do not copy its composition, framing, subject, setting or props."
+)
+
+
+def anchor_scene(scenes: list[Scene]) -> int:
+    """Which frame the others are matched to: the first to show the recurring cast.
+
+    A reference with a face in it holds the face; one without holds only the
+    look. With no recurring cast at all, the first frame anchors the look.
+    """
+    return next((index for index, scene in enumerate(scenes) if scene.cast), 0)
+
+
+def reference_image(path: Path) -> str:
+    """A frame as the images API takes a reference: a downscaled JPEG data URI."""
+    from PIL import Image
+
+    with Image.open(path) as picture:
+        picture = picture.convert("RGB")
+        if picture.width > REFERENCE_WIDTH:
+            height = round(picture.height * REFERENCE_WIDTH / picture.width)
+            picture = picture.resize((REFERENCE_WIDTH, height), Image.LANCZOS)
+        buffer = io.BytesIO()
+        picture.save(buffer, format="JPEG", quality=88)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def generate_image(cfg: Config, prompt: str, target: Path, seed: int | None = None,
+                   reference: str | None = None) -> None:
+    """Draw one frame. `seed` is the scene's own (see image_seed), not the setting;
+    `reference` is a frame to match, as reference_image makes it."""
     payload: dict[str, Any] = {
         "model": cfg.ark_image_model,
         "prompt": prompt,
@@ -2666,6 +2730,8 @@ def generate_image(cfg: Config, prompt: str, target: Path, seed: int | None = No
     }
     if seed is not None:
         payload["seed"] = seed
+    if reference is not None:
+        payload["image"] = reference
     response = post(
         cfg.ark_image_url,
         headers={"Authorization": f"Bearer {cfg.ark_api_key}", "Content-Type": "application/json"},
@@ -2675,6 +2741,13 @@ def generate_image(cfg: Config, prompt: str, target: Path, seed: int | None = No
         # sent again; --resume draws what is missing.
         idempotent=False,
     )
+    if reference is not None and response.status_code == 400:
+        body = response.text.strip().replace("\n", " ")[:300]
+        raise RuntimeError(
+            f"Image generation refused the request with a reference image attached (HTTP 400: {body}). "
+            f"IMAGE_REFERENCE=anchor sends one; if {cfg.ark_image_model} or this plan does not take reference "
+            "images, set IMAGE_REFERENCE=off and --resume."
+        )
     ensure_ok(response, "Image generation")
     body = response.json()
     images = body.get("data") or body.get("images") or []
@@ -3705,23 +3778,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.resume:
         print_image_cost_estimate(cfg, len(pending_images), len(pending_images), "Estimated remaining image cost")
 
-    def make_image(index: int, scene: Scene) -> tuple[int, Path]:
+    def make_image(index: int, scene: Scene, reference: str | None) -> tuple[int, Path]:
         image_path = keyed_path(image_dir, index, picture_key(cfg, scene, characters), ".png")
-        generate_image(cfg, compose_image_prompt(cfg, scene, characters), image_path,
-                       seed=image_seed(cfg, scene))
+        generate_image(cfg, compose_image_prompt(cfg, scene, characters, referenced=reference is not None),
+                       image_path, seed=image_seed(cfg, scene), reference=reference)
         return index, image_path
 
-    if pending_images:
-        active_image_workers = min(cfg.image_concurrency, len(pending_images))
-        append_run_log(asset_root, "images_started", count=len(pending_images), workers=active_image_workers)
-        report_progress("Images", 0, len(pending_images))
-        finished_images = 0
-        current_image_failures: list[dict[str, Any]] = []
-        with ThreadPoolExecutor(max_workers=active_image_workers, thread_name_prefix="ark-image") as executor:
+    image_failures: list[dict[str, Any]] = []
+    drawn_images = 0
+
+    def draw(batch: list[tuple[int, Scene]], reference: str | None) -> None:
+        """Draw a batch in parallel, recording each frame as it lands."""
+        nonlocal drawn_images
+        if not batch:
+            return
+        with ThreadPoolExecutor(max_workers=min(cfg.image_concurrency, len(batch)),
+                                thread_name_prefix="ark-image") as executor:
             futures = {}
-            for index, scene in pending_images:
+            for index, scene in batch:
                 append_run_log(asset_root, "image_started", scene=index)
-                futures[executor.submit(make_image, index, scene)] = index
+                futures[executor.submit(make_image, index, scene, reference)] = index
 
             for future in as_completed(futures):
                 index = futures[future]
@@ -3730,7 +3806,7 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception as exc:
                     failure = {"stage": "image", "scene": index, "error": str(exc)}
                     failures.append(failure)
-                    current_image_failures.append(failure)
+                    image_failures.append(failure)
                     save("failed")
                     append_run_log(asset_root, "image_failed", **failure)
                 else:
@@ -3738,14 +3814,34 @@ def main(argv: list[str] | None = None) -> int:
                     save("image_in_progress")
                     append_run_log(asset_root, "image_completed", scene=index)
                 finally:
-                    finished_images += 1
-                    report_progress("Images", finished_images, len(pending_images))
+                    drawn_images += 1
+                    report_progress("Images", drawn_images, len(pending_images))
 
-        if current_image_failures:
+    if pending_images:
+        append_run_log(asset_root, "images_started", count=len(pending_images),
+                       workers=min(cfg.image_concurrency, len(pending_images)))
+        report_progress("Images", 0, len(pending_images))
+        if cfg.image_reference == "anchor":
+            # The anchor goes first and alone: every other frame is matched to it.
+            anchor = anchor_scene(scenes) + 1
+            draw([(index, scene) for index, scene in pending_images if index == anchor], None)
+            if image_failures:
+                save("failed")
+                raise RuntimeError(
+                    f"The reference frame (scene {anchor}) failed, so the frames matched to it were not "
+                    f"drawn; --resume draws it again. {image_failures[0]['error']}"
+                )
+            append_run_log(asset_root, "reference_anchor", scene=anchor)
+            draw([(index, scene) for index, scene in pending_images if index != anchor],
+                 reference_image(Path(scenes[anchor - 1].image_path or "")))
+        else:
+            draw(pending_images, None)
+
+        if image_failures:
             save("failed")
-            first_failure = current_image_failures[0]
+            first_failure = image_failures[0]
             raise RuntimeError(
-                f"{len(current_image_failures)} image(s) failed; successful images were kept for --resume. "
+                f"{len(image_failures)} image(s) failed; successful images were kept for --resume. "
                 f"First failure: scene {first_failure['scene']}: {first_failure['error']}"
             )
 

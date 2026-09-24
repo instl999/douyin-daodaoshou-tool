@@ -75,11 +75,14 @@ class Studio:
     # This run's calls, cleared by run().
     tts_calls: list[str] = field(default_factory=list)
     image_calls: list[tuple[str, int | None]] = field(default_factory=list)
+    # (file name, the reference sent with it or None), in the order drawn.
+    references: list[tuple[str, str | None]] = field(default_factory=list)
     fail_images: set[int] = field(default_factory=set)
 
     def run(self, *argv: str) -> int:
         self.tts_calls.clear()
         self.image_calls.clear()
+        self.references.clear()
         return acd.main(list(argv))
 
     def draft(self, name: str) -> dict:
@@ -136,10 +139,11 @@ def studio(tmp_path, monkeypatch):
         made.spoken[target.name] = text
         acd.write_atomically(target, _wav(max(0.4, len(text) / CHARACTERS_PER_SECOND)))
 
-    def draw(cfg, prompt, target, seed=None, **_):
+    def draw(cfg, prompt, target, seed=None, reference=None):
         if int(target.name[:2]) in made.fail_images:
             raise RuntimeError("the image service fell over")
         made.image_calls.append((target.name, seed))
+        made.references.append((target.name, reference))
         made.drawn[target.name] = prompt
         acd.write_atomically(target, _png())
 
@@ -339,3 +343,44 @@ def test_a_file_is_written_whole_or_not_at_all(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         acd.write_atomically(tmp_path / "08_def.mp3", b"half")
     assert not (tmp_path / "08_def.mp3").exists(), "half a clip under a good name would be adopted"
+
+
+# ------------------------------------------------ one frame the rest match --
+
+def test_the_anchor_is_drawn_first_and_every_other_frame_is_matched_to_it(studio, monkeypatch):
+    """Scene 2 is the first to show the recurring cast, so it anchors the look."""
+    monkeypatch.setenv("IMAGE_REFERENCE", "anchor")
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+
+    (anchor, none), *rest = studio.references
+    assert anchor.startswith("02_") and none is None, "the anchor is drawn first, alone, from words"
+    assert rest and all(reference.startswith("data:image/jpeg;base64,") for _, reference in rest)
+    assert acd.REFERENCE_NOTE not in studio.drawn[anchor]
+    assert all(acd.REFERENCE_NOTE in studio.drawn[name] for name, _ in rest), \
+        "a reference without the note is read as 'draw this again'"
+
+
+def test_a_frame_drawn_later_is_matched_to_the_anchor_already_there(studio, monkeypatch):
+    monkeypatch.setenv("IMAGE_REFERENCE", "anchor")
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    manifest = studio.root / "output" / "story" / "manifest.json"
+    state = json.loads(manifest.read_text(encoding="utf-8"))
+    state["scenes"][2]["image_prompt"] = "the shop door closing"
+    manifest.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    assert studio.run("--resume", "story", "--replace") == 0
+    [(name, reference)] = studio.references
+    assert name.startswith("03_") and reference is not None
+
+
+def test_a_failed_anchor_stops_before_the_frames_matched_to_it(studio, monkeypatch):
+    monkeypatch.setenv("IMAGE_REFERENCE", "anchor")
+    studio.fail_images = {2}
+    with pytest.raises(RuntimeError, match=r"reference frame \(scene 2\)"):
+        studio.run("--draft-name", "story", "--text", COPY)
+    assert studio.references == [], "nothing may be drawn against a reference that does not exist"
+
+
+def test_without_the_setting_no_reference_is_sent(studio):
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    assert [reference for _, reference in studio.references] == [None] * len(FIRST_SPLIT)

@@ -9,11 +9,13 @@ dependencies = [
     # rename them and the failure surfaces as a bare AttributeError.
     "pyJianYingDraft>=0.3.0,<0.4.0",
     "requests>=2.31.0",
+    # Shrinks the anchor frame sent with IMAGE_REFERENCE=anchor. It already
+    # arrives with pyJianYingDraft (through imageio); named because it is used.
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
-# Pillow is only used by the integration test to synthesise images.
-dev = ["pytest>=8.0", "ruff>=0.6", "Pillow>=10.0.0"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [tool.ruff]
 line-length = 140

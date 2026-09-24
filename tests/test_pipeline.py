@@ -1710,3 +1710,66 @@ def test_a_one_line_title_ramps_across_itself():
     (row,) = acd.title_fills(["认知觉醒"], CRIMSON, ramp=True)
     assert row[0] == pytest.approx(CRIMSON.primary, abs=1e-4)
     assert row[-1] == pytest.approx(CRIMSON.accent, abs=1e-4)
+
+
+# -------------------------------------------------- the reference anchor ----
+
+
+def test_the_anchor_is_the_first_frame_with_the_recurring_cast():
+    scenes = [acd.Scene(text="a", image_prompt="x"), acd.Scene(text="b", image_prompt="x", cast=["A"]),
+              acd.Scene(text="c", image_prompt="x", cast=["A"])]
+    assert acd.anchor_scene(scenes) == 1
+    assert acd.anchor_scene(scenes[:1]) == 0, "with no cast the first frame anchors the look"
+
+
+def test_a_reference_is_a_small_jpeg(tmp_path):
+    import base64
+    import io
+
+    from PIL import Image
+
+    frame = tmp_path / "02_frame.png"
+    Image.new("RGB", (2560, 1440), (20, 30, 70)).save(frame)
+    uri = acd.reference_image(frame)
+    assert uri.startswith("data:image/jpeg;base64,")
+    with Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1]))) as picture:
+        assert (picture.format, picture.size) == ("JPEG", (acd.REFERENCE_WIDTH, 720))
+
+
+class _Answer:
+    def __init__(self, status, body):
+        self.status_code, self._body = status, body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+def test_a_reference_travels_in_the_image_field(monkeypatch, tmp_path):
+    import base64
+
+    sent = []
+    png = base64.b64encode(b"not really a png").decode()
+    monkeypatch.setattr(acd, "post", lambda url, **kwargs: sent.append(kwargs["json"]) or
+                        _Answer(200, {"data": [{"b64_json": png}]}))
+    acd.generate_image(_ImageConfig(), "p", tmp_path / "01_a.png")
+    acd.generate_image(_ImageConfig(), "p", tmp_path / "02_b.png", reference="data:image/jpeg;base64,AAAA")
+    assert "image" not in sent[0]
+    assert sent[1]["image"] == "data:image/jpeg;base64,AAAA"
+
+
+def test_an_endpoint_that_refuses_references_names_the_setting(monkeypatch, tmp_path):
+    monkeypatch.setattr(acd, "post", lambda url, **kwargs: _Answer(400, {"error": "image not supported"}))
+    with pytest.raises(RuntimeError, match="IMAGE_REFERENCE=off"):
+        acd.generate_image(_ImageConfig(), "p", tmp_path / "01_a.png", reference="data:image/jpeg;base64,AAAA")
+
+
+def test_the_prompt_says_what_a_reference_is_for():
+    scene = acd.Scene(text="一句", image_prompt="a shop")
+    assert acd.REFERENCE_NOTE in acd.compose_image_prompt(_StubConfig(), scene, [], referenced=True)
+    assert acd.REFERENCE_NOTE not in acd.compose_image_prompt(_StubConfig(), scene, [])
+
+
+def test_an_unknown_reference_mode_is_refused(monkeypatch, tmp_path):
+    with pytest.raises(RuntimeError, match="IMAGE_REFERENCE"):
+        _director_env(monkeypatch, tmp_path, IMAGE_REFERENCE="everything")
