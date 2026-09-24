@@ -71,7 +71,24 @@ SAFE_NORMALIZED_Y = 0.92
 DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/plan/v3"
 DEFAULT_ARK_IMAGE_URL = f"{DEFAULT_ARK_BASE_URL}/images/generations"
 DEFAULT_ARK_TTS_URL = "https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional"
+# The storyboard is structured extraction, not deliberation, so the director
+# is always asked to answer without thinking first (STORYBOARD_THINKING). That
+# one flag is the difference between a storyboard and a timeout. Measured on
+# one six-scene script, same brief, same copy:
+#
+#                                          thinking on          thinking off
+#     Ark           deepseek-v4-flash     no answer in 240s    done in 15s
+#     Ark           doubao-seed-2.0-lite  done in 98s          done in 27s
+#     DeepSeek API  deepseek-chat         -                    done in  6s
+#
+# With thinking on, nothing arrives while the model deliberates, and this
+# network path drops a connection silent for about 69s - which is what
+# "Network request failed after 3 attempts" was. The director goes to
+# DeepSeek's own API whenever DEEPSEEK_API_KEY is set, being the fastest of
+# the three; without one it stays on Ark with the original default.
 DEFAULT_ARK_TEXT_MODEL = "deepseek-v4-flash"
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-chat"
 DEFAULT_ARK_IMAGE_MODEL = "doubao-seedream-5.0-lite"
 DEFAULT_ARK_TTS_MODEL = "seed-tts-2.0"
 DEFAULT_OPENING_SOUND_PATH = "assets/opening_dong.mp3"
@@ -205,24 +222,22 @@ STYLE_PRESETS: dict[str, StylePreset] = {
     "midnight": StylePreset(
         label="深蓝彩漫",
         prompt=(
-            "Contemporary Chinese comic panel on a deep midnight-blue ground, with colour used as the focal point. The "
-            "room itself - walls, window frames, doors, floor, the edges of furniture - is drawn as clean white "
-            "contour line on bare navy with no fill, like a drawing of the space; the subject and the two or three "
-            "props the sentence turns on are painted in FULL COLOUR on top of it, flat cel fills inside confident "
-            "black ink outlines, believable skin tones and ordinary clothing colour. That contrast is the composition: "
-            "whatever is painted is what the frame is about, and whatever is left as white line is the room it happens "
-            "in. One warm practical light source - a lamp, a window, a screen - laying warm amber across the subject, "
-            "the surrounding navy reading as the cool shadow it sits in. One saturated accent carries the emotional "
-            "beat: a red crack of light under a door, a pink note, a warm family photograph. A figure who is present "
-            "but is not the subject is a solid dark silhouette. Semi-realistic contemporary adults with simple "
-            "readable silhouettes and faces that act in few lines. Large areas of unbroken navy left with no line and "
-            "no colour in them at all - the drawing must not run edge to edge. Editorial, emotional, grounded. Not "
-            "photorealistic, no 3D render, no watercolour, no pale or white background, no all-over line texture, no "
-            "uniform line weight, 16:9"
+            "Contemporary Chinese comic illustration, fully painted in colour: flat cel-shaded fills with soft "
+            "gradients where light falls, inside confident black ink outlines, semi-realistic proportions. The palette "
+            "is cool - deep navy and blue walls, blue night shadow, blue-grey furniture - with one warm practical "
+            "light source, a lamp, a window or a screen, laying amber across the subject; that warm-against-cool "
+            "contrast is the look. Rooms are real and furnished to the edges with the ordinary things a lived-in space "
+            "holds, drawn in enough detail to say whose room it is; distant walls and window frames may be left as "
+            "pale line drawn over the blue. The subject is the most saturated, most brightly lit and most detailed "
+            "thing in the frame, and everything else sits back in the blue. One saturated accent may carry the "
+            "emotional beat - a red crack of light under a door, a pink note, a warm family photograph - and a figure "
+            "who is present but is not the subject is a solid dark silhouette. Faces act in a few confident lines. "
+            "Editorial, emotional, grounded. Not photorealistic, no 3D render, no watercolour, no flat vector icons, "
+            "no plain empty background, no pale washed-out palette, 16:9"
         ),
-        medium=("a contemporary Chinese comic panel - the room in white line on a deep "
-                "midnight-blue ground, the subject painted in full colour"),
-        avoid="photography, 3D rendering, or a pale washed-out background",
+        medium=("a fully painted contemporary Chinese comic illustration in a cool "
+                "midnight-blue palette lit by one warm lamp"),
+        avoid="photography, 3D rendering, flat vector icons, or a pale washed-out palette",
         grade="深蓝电影感",
         title="crimson",
     ),
@@ -421,7 +436,8 @@ SHOT_SIZES = {
             "much work as the people, but one figure or object still clearly leads the frame."
         ),
         elements=4,
-        subject_height="at about a third of the frame height",
+        subject_height=("filling the frame if it is a place, and at about a third of the frame height if it "
+                        "is a person or an object"),
     ),
     "medium": Framing(
         brief=(
@@ -461,8 +477,9 @@ COMPOSITION = (
     "overlap or crowd the subject's outline. "
     "The subject has to stay identifiable with the whole frame an inch wide, so its silhouette must read as a shape "
     "on its own, separated from the background by tone and not by an outline alone. "
-    "Leave at least a third of the frame as quiet, near-empty ground: empty space is what makes a subject look "
-    "chosen rather than cropped, and a frame filled edge to edge has no subject at all. "
+    "Keep clear space immediately around the subject's outline, but fill the frame: it is a whole, furnished "
+    "scene from edge to edge, and the subject leads it by size, light and colour - never a subject floating on an "
+    "empty field. "
     "One moment, one place, one continuous space - never a collage, a split screen, a before-and-after pair, a grid "
     "of panels, an inset, or a row of icons. "
     "At most {elements} besides the subject; if the sentence names more, draw the ones it turns on and leave "
@@ -1341,6 +1358,13 @@ class Config:
     ark_api_key: str
     ark_base_url: str
     ark_text_model: str
+    # Where the storyboard director is called, resolved once: DeepSeek's own
+    # API when DEEPSEEK_API_KEY is set, Ark otherwise. Images and narration
+    # stay on Ark either way - they are what the Agent Plan is for.
+    text_base_url: str
+    text_api_key: str
+    text_model: str
+    text_provider: str
     scene_characters: int
     scene_length_mode: str
 
@@ -1444,14 +1468,31 @@ class Config:
 
         draft_dir, draft_dir_source = resolve_draft_dir()
 
+        ark_api_key = required("ARK_API_KEY")
+        ark_base_url = env_value("ARK_BASE_URL", DEFAULT_ARK_BASE_URL).rstrip("/")
+        ark_text_model = env_value("ARK_TEXT_MODEL", DEFAULT_ARK_TEXT_MODEL)
+        deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+        if deepseek_key:
+            text_provider = "deepseek"
+            text_base_url = env_value("DEEPSEEK_BASE_URL", DEFAULT_DEEPSEEK_BASE_URL).rstrip("/")
+            text_api_key = deepseek_key
+            text_model = env_value("DEEPSEEK_MODEL", DEFAULT_DEEPSEEK_MODEL)
+        else:
+            text_provider = "ark"
+            text_base_url, text_api_key, text_model = ark_base_url, ark_api_key, ark_text_model
+
         seed_raw = os.getenv("ARK_IMAGE_SEED", "").strip()
         price_raw = os.getenv("ARK_IMAGE_CNY_PER_IMAGE", "").strip()
 
         return cls(
             speed=speed,
-            ark_api_key=required("ARK_API_KEY"),
-            ark_base_url=env_value("ARK_BASE_URL", DEFAULT_ARK_BASE_URL).rstrip("/"),
-            ark_text_model=env_value("ARK_TEXT_MODEL", DEFAULT_ARK_TEXT_MODEL),
+            ark_api_key=ark_api_key,
+            ark_base_url=ark_base_url,
+            ark_text_model=ark_text_model,
+            text_base_url=text_base_url,
+            text_api_key=text_api_key,
+            text_model=text_model,
+            text_provider=text_provider,
             scene_characters=positive_env_int(
                 "SCENE_CHARACTERS_PER_IMAGE", DEFAULT_SCENE_CHARACTERS, minimum=MIN_SCENE_CHARACTERS
             ),
@@ -1938,55 +1979,45 @@ def storyboard_batches(copy: str, batch_size: int = 360) -> list[str]:
 # What a frame is allowed to be about, and how it should read to somebody
 # who is not looking for anything.
 #
-# Two failures this is written against, both of them things the model does by
-# default rather than by accident:
+# Kept SHORT on purpose. This is the system prompt for a model that reasons
+# before it answers, and an earlier version explained every rule, naming the
+# failure each was written against. Measured on one storyboard call it spent
+# 33,000 characters of reasoning and emitted no answer at all within three
+# minutes - long enough that the call died on the connection's idle limit
+# before the model was ready to speak. The rules below are the same rules;
+# what is gone is the argument for them, which only a person reading this
+# file needs, and which now sits here where it costs nothing at runtime.
 #
-# "One image per sentence" is read as "everything in the sentence, in one
-# image". A sentence naming a person, a place, a time and a feeling came back
-# as four things drawn at the same size. Naming ONE subject as a separate
-# field is what breaks that - a field has to be filled with one answer, where
-# a description can quietly hold four.
+# The failures being guarded against, for whoever edits this next:
 #
-# And an abstract sentence is illustrated with the stock of the idea: a
-# balance, a clock, a maze, a lightbulb, gears, a head full of arrows. Those
-# are the images a model reaches for and close to the last ones a general
-# audience wants to look at. The rule below is that the picture is of people
-# doing things, and the abstraction is carried by what they are doing.
+# - "One image per sentence" gets read as "everything in the sentence, in one
+#   image", so the subject is asked for as its own field: a field holds one
+#   answer where a description quietly holds four.
+# - A person used to be chosen three times over - as the fallback for an
+#   abstract line, as a stated preference over objects, and again whenever a
+#   sentence was about feeling. On copy that is all feeling that is every
+#   frame, which is what the reference frames showed going wrong.
+# - An unfurnished frame makes the subject look cut out and pasted on, so a
+#   room is required rather than suggested.
+# - A symbolic figure inside a real room reads - a silhouette in a doorway -
+#   where the same shapes floating on nothing do not. Only the second is
+#   banned, and the earlier blanket ban overshot.
 DIRECTION = (
-    "Frame. Every scene is one picture with one subject, and \"subject\" names it in two to five English words. "
-    "A subject is a thing that can be drawn, and it is equally allowed to be a PLACE (\"a lit kitchen at midnight\", "
-    "\"a banquet table after everyone has gone\"), an OBJECT (\"a cracked photo frame\", \"a phone face-down on a "
-    "duvet\"), or a PERSON (\"a woman at a kitchen table\"). Never an abstraction (\"pressure\", \"regret\"), and "
-    "never two things joined by \"and\". "
-    # The failure this replaces: a person was being chosen three times over -
-    # as the fallback for an abstract line, as an explicit preference over
-    # objects, and again whenever a sentence was about feeling. On copy that
-    # is entirely about feeling, that is every frame.
-    "Do not default to a person. Across each batch, some frames must have a place or an object as their subject, "
-    "and a sentence about how somebody feels is often better carried by the room they feel it in - an unmade bed, "
-    "a cold meal, a door that stays shut - than by a face. Use a face when the expression IS the information. "
-    "Write image_prompt as one sentence of at most 30 words: the subject, the single action or state it is in, and "
-    "the few things around it the sentence turns on. It is a description of one picture, not a summary of the "
-    "sentence. "
-    # "Bring the scene to life" is not a mood word - it is furniture, a light
-    # source and a real room. An unfurnished frame is what makes a subject
-    # look cut out and pasted on.
-    "Set the picture somewhere specific and furnished. Name the room and put the two or three ordinary props in it "
-    "that say whose room it is and what time it is - a hallway light left on, a wedding photo, dishes not cleared, "
-    "a jacket over a chair - and give it one light source to sit in. An empty backdrop reads as a cut-out; a room "
-    "that somebody lives in is most of what makes a frame worth watching. "
-    "Audience. These are watched on a phone and judged in the first half-second, so take the reading a general "
-    "viewer finds attractive and immediately legible rather than the cleverest one. Keep poses and expressions "
-    "ordinary - no theatrical gesturing, no crowds, no empty stages. "
-    # Narrowed deliberately. The reference account DOES use a symbolic figure -
-    # a silhouette at the edge of a room, a net, a crack of red light under a
-    # door - and they work because they sit inside a real space. What does not
-    # work is the same shapes floating on nothing, which is what "a pile of
-    # symbols" was written against and what the earlier blanket ban overshot.
-    "At most one symbolic element per frame, and it has to live in the room: a silhouette standing in a doorway "
-    "reads, a row of icons on a blank ground does not. Never a diagram, a chart, a floating cluster of objects, a "
-    "collage, a split screen, a before-and-after pair, a grid of panels or an inset - one moment, in one place, in "
-    "one continuous space."
+    "Frame. One picture, one subject, named in \"subject\" as two to five English words. A subject is a PLACE "
+    "(\"a lit kitchen at midnight\"), an OBJECT (\"a cracked photo frame\") or a PERSON (\"a woman at a kitchen "
+    "table\"), and the three rank equally. Not an abstraction, and never two things joined by \"and\". "
+    "Do not default to a person: at least half of the scenes in this batch must have a place or an object as "
+    "their subject, and carry a feeling "
+    "with the room it happens in - an unmade bed, a cold meal, a door left shut - unless the expression itself "
+    "is the information. "
+    "Write image_prompt as one sentence of at most 30 words: the subject, what it is doing, and only the few "
+    "things the sentence turns on. "
+    "Set every scene in a named, furnished room - two or three ordinary props that say whose room it is and "
+    "what time it is, and one light source. "
+    "At most one symbolic element per frame and it has to sit in the room. No diagram, chart, floating cluster "
+    "of objects, collage, split screen, before-and-after pair, grid of panels or inset. "
+    "These are watched on a phone: take the legible reading over the clever one, and keep poses and expressions "
+    "ordinary."
 )
 
 
@@ -2185,27 +2216,99 @@ def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character], l
     return scenes, characters, moods[:BGM_MOOD_LIMIT]
 
 
+# Sent with every storyboard request. Ark's reasoning models think at length
+# by default and stream nothing but reasoning while they do; DeepSeek's API
+# accepts the same field. Turned off because the task is extraction.
+STORYBOARD_THINKING = {"type": "disabled"}
+
+# How long the stream may go without a single byte before it is abandoned.
+# This is a gap between chunks, not a limit on the whole answer: a model can
+# take as long as it likes provided it keeps sending, and reasoning models
+# stream their thinking, so they keep sending.
+STREAM_IDLE_SECONDS = 120
+STREAM_ATTEMPTS = 3
+
+
+def stream_chat(url: str, api_key: str, body: dict[str, Any], what: str) -> str:
+    """POST a chat completion with streaming on, and return the answer text.
+
+    Streamed for one reason. A model that thinks before it answers sends
+    nothing until it is ready, and this network path drops a connection that
+    has been silent for about 69 seconds - so a non-streamed call succeeded or
+    failed depending on how long the model happened to deliberate that minute.
+    Measured on one brief, the same director took 58s once and 86s the next.
+    A stream keeps bytes moving while it reasons.
+
+    Reasoning is read and discarded: only `content` is the answer. A stream
+    that ends with reasoning and no answer is reported as exactly that, naming
+    the model, because the alternative is a JSON error about an empty string.
+    """
+    last_error: Exception | None = None
+    for attempt in range(STREAM_ATTEMPTS):
+        response = post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={**body, "stream": True},
+            stream=True,
+            timeout=(30, STREAM_IDLE_SECONDS),
+        )
+        ensure_ok(response, what)
+        # requests guesses ISO-8859-1 for a text/event-stream with no charset,
+        # which turns every Chinese character in the storyboard into mojibake.
+        response.encoding = "utf-8"
+        parts: list[str] = []
+        reasoned = 0
+        try:
+            for line in response.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    delta = (json.loads(payload).get("choices") or [{}])[0].get("delta") or {}
+                except (ValueError, AttributeError, IndexError):
+                    continue
+                reasoned += len(delta.get("reasoning_content") or "")
+                parts.append(delta.get("content") or "")
+        except requests.RequestException as exc:
+            # Cut mid-answer. What arrived is not a storyboard, so start over.
+            last_error = exc
+            print(f"{what}: the stream was cut ({exc.__class__.__name__}); "
+                  f"retrying ({attempt + 1}/{STREAM_ATTEMPTS})...", flush=True)
+            time.sleep((attempt + 1) * 3)
+            continue
+        finally:
+            response.close()
+        answer = "".join(parts).strip()
+        if answer:
+            return answer
+        raise RuntimeError(
+            f"{what}: {body.get('model')} returned no answer - {reasoned} characters of reasoning "
+            "and nothing after it. The model deliberated instead of answering even though "
+            "thinking was switched off; this provider may ignore the flag. Use a model that "
+            "answers directly, such as DEEPSEEK_MODEL=deepseek-chat."
+        )
+    raise RuntimeError(f"{what}: the stream was cut {STREAM_ATTEMPTS} times: {last_error}")
+
+
 def request_storyboard(cfg: Config, prompt: str, batch: str, batch_target: int) -> dict[str, Any]:
-    """Call the text model, retrying once at a lower temperature on bad JSON."""
+    """Call the director, retrying once at a lower temperature on bad JSON."""
     last_content = ""
     for attempt, temperature in enumerate((0.55, 0.2)):
-        response = post(
-            f"{cfg.ark_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {cfg.ark_api_key}", "Content-Type": "application/json"},
-            json={
-                "model": cfg.ark_text_model,
+        last_content = stream_chat(
+            f"{cfg.text_base_url}/chat/completions",
+            cfg.text_api_key,
+            {
+                "model": cfg.text_model,
                 "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": batch}],
                 "temperature": temperature,
                 "max_tokens": min(8192, max(1536, batch_target * 200)),
                 "response_format": {"type": "json_object"},
+                "thinking": STORYBOARD_THINKING,
             },
-            timeout=300,
+            "Storyboard request",
         )
-        ensure_ok(response, "Storyboard request")
-        try:
-            last_content = response.json()["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, ValueError) as exc:
-            raise RuntimeError(f"Storyboard response had an unexpected shape: {response.text[:300]}") from exc
         try:
             return parse_storyboard_payload(last_content)
         except (json.JSONDecodeError, ValueError) as exc:

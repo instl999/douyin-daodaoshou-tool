@@ -23,7 +23,8 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Fill in two things in `.env` — `ARK_API_KEY` and `ARK_TTS_VOICE_TYPE`. The
+Fill in two things in `.env` — `ARK_API_KEY` and `ARK_TTS_VOICE_TYPE` — plus
+`DEEPSEEK_API_KEY` if you have one, which makes the storyboard much faster. The
 draft folder is found for you, so the draft lands in Jianying with nothing to
 copy by hand; set `JIAN_YING_DRAFT_DIR` only if that lookup fails. Then:
 
@@ -155,7 +156,7 @@ All of them live in **`styles.json`** at the repo root, so changing the look nev
 
 | Preset | Look | Filter / title colourway |
 | --- | --- | --- |
-| `midnight` (default) | **White line on midnight blue**: white contour lines and engraving hatching on flat navy, with one or two things allowed a saturated spot colour. This is the reference video's look | 深蓝电影感 / crimson |
+| `midnight` (default) | **Painted, cool navy, one warm lamp**: a fully painted comic scene in black ink outlines and flat fills, a cool navy palette lit by one warm source, rooms furnished to the frame edges. This is the reference video's look | 深蓝电影感 / crimson |
 | `manhua` | **Chinese webtoon**: fine ink lines, flat fills, soft daylight, low-saturation warm palette. The faces act, so it carries feeling and dialogue best | 灰调中性 / paper |
 | `ink` | **Ink and wash**: wet brush on rice paper, vast empty space, a single vermilion accent | 水墨意境 / ink |
 | `papercut` | **Cut-paper collage**: layered paper with real drop shadows, five paper colours, no lines and no rendering — shape and shadow only | 牛皮纸 / paper |
@@ -286,34 +287,32 @@ At most one symbolic element per frame, and it has to live in the room: a
 silhouette standing in a doorway reads; a row of icons on a blank ground does
 not. No diagrams, charts or floating clusters of objects.
 
-### The default style: what is painted is the subject
+### The default style: fully painted, cool navy, one warm lamp
 
-The reference frames are not line art. The room — walls, window frames, doors,
-floor, the edges of furniture — is **white contour line** on deep navy, and the
-subject plus the two or three props the sentence turns on are **painted in full
-colour** on top of it: flat cel fills inside confident black ink outlines,
-believable skin tones, ordinary clothing colour.
+Five of the seven reference frames are **fully painted interiors** — a café, a
+living room, a bedroom, a banquet table, a desk. Black ink outlines, flat fills
+with soft gradients where light falls, walls and shadow and furniture in a cool
+navy palette, and one warm practical source — a lamp, a window, a screen —
+laying amber across the subject. **That warm-against-cool contrast is the
+look.** Rooms are real and furnished; distant walls may be left as pale line,
+but the subject never is.
 
-**That contrast is the composition.** Whatever is painted is what the frame is
-about; whatever is left as white line is the room it happens in. One warm
-practical light source — a lamp, a window, a screen — lays warm amber across
-the subject while the surrounding navy reads as the cool shadow it sits in. One
-saturated accent carries the emotional beat: a red crack of light under a door,
-a pink note, a warm family photograph. A figure who is present but is not the
-subject is a solid dark silhouette.
+The previous version read the references as "white line room, painted subject",
+which is true of two of them. Here is what it actually drew:
 
-The preset used to ask for the opposite — `Single-colour white line
-illustration`, `no filled colour areas and no grey wash`, one or two spot
-accents. That is neither the reference look nor a hierarchy: it switched off
-**colour**, which is the strongest tool the frame has for saying what matters.
+| | previous | now |
+| --- | --- | --- |
+| the same "dim apartment stairwell" frame | a line-drawn staircase in a small box, low in the frame, ~65% bare navy | a fully painted stairwell filling the frame: cool blue walls and worn steps, one warm lamp lighting the door |
 
-So: the subject is painted, largest and most detailed; support is simpler and
-less coloured; the room stays white line. And **large areas of the panel are
-left as unbroken navy with neither line nor colour in them**.
+Three rules were compounding into the emptiness, and all three changed:
+
+- composition's "leave at least a third of the frame empty" → clear space around the subject, but **the frame is a whole scene**
+- the style's "large areas of unbroken navy" → gone, and "no flat vector icons, no plain empty background" added
+- a wide shot drew its subject at a third of the frame height — right for a person, and it shrank a **place** to an icon. A place now fills the frame
 
 > The change lands in the built-in default *and* in the repository's
 > `styles.json`. The file wins at runtime, so editing only the code would have
-> changed nothing - there is a test watching for exactly that.
+> changed nothing — there is a test watching for exactly that.
 
 ---
 
@@ -482,6 +481,33 @@ success.
 
 ---
 
+## Which model writes the storyboard
+
+Set `DEEPSEEK_API_KEY` and the director uses DeepSeek's own API; leave it empty
+and it stays on Ark. **Images and narration always use the Ark Agent Plan.**
+
+Measured on one six-scene script, same brief:
+
+| | thinking off | thinking on |
+| --- | --- | --- |
+| DeepSeek API `deepseek-chat` | **6s** | — |
+| Ark `deepseek-v4-flash` (default) | 15s | 40,000+ characters of reasoning and no storyboard in 240s |
+| Ark `doubao-seed-2.0-lite` | 27s | 98s |
+
+**The storyboard request now always turns the model's thinking off.** It used
+not to: the model reasoned for minutes, sent nothing while it did, and this
+network path drops a connection silent for about 69s — which surfaced as
+"Network request failed after 3 attempts", a network error that was really a
+model still thinking.
+
+The call also **streams** now, so the connection stays busy while the answer is
+written. A stream cut midway is started again, since half a JSON object is not
+a storyboard. And if a model reasons without ever answering — some providers
+ignore the flag — the error names the model and how much it reasoned, instead
+of reporting a JSON parse failure.
+
+---
+
 ## Music picked from the copy
 
 Put a folder of music at `assets/bgm/` (or point `BGM_LIBRARY` anywhere else)
@@ -558,7 +584,10 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ARK_API_KEY` | empty | Ark Agent Plan key, shared by all three models |
+| `ARK_API_KEY` | empty | Ark Agent Plan key: images, narration, and the storyboard when no DeepSeek key is set |
+| `DEEPSEEK_API_KEY` | empty | Send the storyboard to DeepSeek's own API (fastest); images and narration stay on Ark |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek storyboard model |
+| `ARK_TEXT_MODEL` | `deepseek-v4-flash` | Storyboard model on Ark when no DeepSeek key is set |
 | `ARK_TTS_VOICE_TYPE` | sample voice | Voice ID |
 | `JIAN_YING_DRAFT_DIR` | empty = auto | Local Jianying draft root. Found automatically when empty, including a relocated library |
 | `IMAGE_STYLE_PRESET` | `midnight` | Whole-video art direction, one of nine; see [styles.json](styles.json) |
@@ -661,6 +690,7 @@ The suite covers every piece of logic that does not call a paid API:
 | --- | --- |
 | HTTP 429 | Lower `IMAGE_CONCURRENCY`. Errors carry the API's response body, so rate limiting and an empty balance are distinguishable |
 | SSL EOF / dropped connection | Retry later with `--resume`; drop to one worker if needed |
+| `Network request failed after 3 attempts` at the storyboard | The old symptom of a model still thinking while the connection timed out. Thinking is now off and the call streams; if it persists, set `DEEPSEEK_API_KEY` |
 | Opening sound effect not found | Check `OPENING_SOUND_PATH` points at an existing MP3 or WAV |
 | Jianying folder not found | Only needed when the lookup fails: 全局设置 → 草稿位置 in Jianying shows the path to put in `JIAN_YING_DRAFT_DIR` |
 | No music | `--check-config` prints the library path and how many tracks carry a mood label; a filename must START with one to be matched |

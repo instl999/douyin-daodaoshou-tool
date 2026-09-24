@@ -1190,8 +1190,9 @@ def _brief():
 def test_the_director_must_name_a_thing_rather_than_an_idea():
     """A named abstraction is where the pile of symbols comes from."""
     brief = _brief()
-    assert '"subject" names it' in brief
-    assert "Never an abstraction" in brief
+    assert 'named in "subject"' in brief
+    assert "Not an abstraction" in brief
+    assert 'never two things joined by "and"' in brief
 
 
 def test_a_place_or_an_object_is_as_valid_a_subject_as_a_person():
@@ -1220,7 +1221,7 @@ def test_the_director_has_to_furnish_the_room():
     gradient.
     """
     brief = _brief()
-    assert "somewhere specific and furnished" in brief
+    assert "named, furnished room" in brief
     assert "one light source" in brief
 
 
@@ -1234,7 +1235,7 @@ def test_one_symbol_in_a_real_room_is_allowed_again():
     """
     brief = _brief()
     assert "At most one symbolic element per frame" in brief
-    assert "has to live in the room" in brief
+    assert "has to sit in the room" in brief
     # The part that was always right stays.
     for banned in ("collage", "split screen", "grid of panels"):
         assert banned in brief, banned
@@ -1256,26 +1257,24 @@ def test_the_subject_survives_the_storyboard_and_the_manifest():
 # ----------------------------------------- the default style's hierarchy ---
 
 
-def test_the_default_style_paints_the_subject_and_draws_the_room():
-    """Colour is the focal device, measured off the reference frames.
+def test_the_default_style_paints_the_whole_scene():
+    """Five of the seven reference frames are fully painted interiors.
 
-    The room is white contour line on navy; the subject and the props the
-    sentence turns on are painted on top of it. Whatever is painted is what
-    the frame is about. The preset used to ask for the opposite - white line
-    everywhere, no painted areas at all, one or two spot accents - which is
-    both the wrong look and no hierarchy.
+    The previous preset read them as "white line room, painted subject",
+    which is true of two. Its first real frame was a door and a mailbox drawn
+    as a flat vector icon on bare navy, and the style's own "large areas of
+    unbroken navy" clause was one of three rules emptying the frame.
     """
     preset = acd.STYLE_PRESETS["midnight"]
-    assert "FULL COLOUR" in preset.prompt
-    assert "white contour line" in preset.prompt
+    assert "fully painted in colour" in preset.prompt
     assert "black ink outlines" in preset.prompt
-    # The old contract, gone rather than contradicted.
+    assert "furnished to the edges" in preset.prompt
+    assert "no flat vector icons" in preset.prompt
+    assert "no plain empty background" in preset.prompt
+    # Both earlier contracts, gone rather than contradicted.
     assert "Single-colour white line illustration" not in preset.prompt
-    assert "no filled colour areas" not in preset.prompt
-    # A full-colour panel must not now be listed as something to avoid.
+    assert "unbroken navy" not in preset.prompt
     assert "full-colour painting" not in preset.avoid
-    # And somewhere for the eye to rest, so the panel is not wall-to-wall.
-    assert "unbroken navy" in preset.prompt
 
 
 def test_the_default_style_still_says_where_the_light_comes_from():
@@ -1296,3 +1295,168 @@ def test_the_shipped_styles_file_matches_the_built_in_default():
     for name, preset in shipped["presets"].items():
         if isinstance(preset, dict) and name in acd.STYLE_PRESETS:
             assert preset["prompt"] == acd.STYLE_PRESETS[name].prompt, name
+
+
+# ----------------------------------------------- a frame that is a scene ----
+
+
+def test_the_frame_is_filled_not_emptied():
+    """"Leave a third of the frame empty" was the loudest of three rules.
+
+    With the style asking for unbroken navy and a wide shot shrinking a place
+    to a third of the frame, the first real frame was about 60% bare ground.
+    The subject keeps clear space around its own outline; the frame is a scene.
+    """
+    assert "Leave at least a third of the frame" not in acd.COMPOSITION
+    assert "fill the frame" in acd.COMPOSITION
+    assert "never a subject floating on an empty field" in acd.COMPOSITION
+
+
+def test_a_place_fills_a_wide_shot():
+    """A third of the frame height is right for a person and makes a place an icon."""
+    wide = acd.SHOT_SIZES["wide"].subject_height
+    assert "filling the frame if it is a place" in wide
+    assert "a third of the frame height if it is a person or an object" in wide
+
+
+def test_at_least_half_the_subjects_are_places_or_objects():
+    """"Several" let a director return two places in five scenes and stop."""
+    assert "at least half of the scenes" in acd.DIRECTION
+
+
+# ------------------------------------------------------ the director -------
+
+
+def _director_env(monkeypatch, tmp_path, **extra):
+    drafts = tmp_path / "drafts"
+    drafts.mkdir(exist_ok=True)
+    values = {"ARK_API_KEY": "ark-test", "ARK_TTS_VOICE_TYPE": "v",
+              "JIAN_YING_DRAFT_DIR": str(drafts), "DEEPSEEK_API_KEY": "",
+              "ARK_TEXT_MODEL": "", "DEEPSEEK_MODEL": "", "DEEPSEEK_BASE_URL": ""}
+    values.update(extra)
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    return acd.Config.load()
+
+
+def test_the_director_goes_to_deepseek_when_a_key_is_set(monkeypatch, tmp_path):
+    """deepseek-chat answered the same brief in 6s against 98s on Ark."""
+    cfg = _director_env(monkeypatch, tmp_path, DEEPSEEK_API_KEY="sk-test")
+    assert cfg.text_provider == "deepseek"
+    assert cfg.text_base_url == "https://api.deepseek.com"
+    assert cfg.text_model == "deepseek-chat"
+    assert cfg.text_api_key == "sk-test"
+    # Images and narration stay on Ark - that is what the Agent Plan is for.
+    assert cfg.ark_api_key == "ark-test"
+
+
+def test_without_a_deepseek_key_the_director_stays_on_ark(monkeypatch, tmp_path):
+    cfg = _director_env(monkeypatch, tmp_path)
+    assert cfg.text_provider == "ark"
+    assert cfg.text_api_key == "ark-test"
+    assert cfg.text_model == acd.DEFAULT_ARK_TEXT_MODEL
+
+
+def test_the_storyboard_turns_thinking_off(monkeypatch, tmp_path):
+    """The flag that was the difference between a storyboard and a timeout.
+
+    With thinking on, deepseek-v4-flash reasoned past 38,000 characters and
+    never answered; with it off, the same model finished in 15 seconds.
+    """
+    cfg = _director_env(monkeypatch, tmp_path)
+    seen = {}
+
+    def fake_stream_chat(url, api_key, body, what):
+        seen.update(body)
+        return '{"scenes": [{"text": "一句", "image_prompt": "x"}]}'
+
+    monkeypatch.setattr(acd, "stream_chat", fake_stream_chat)
+    acd.request_storyboard(cfg, "brief", "copy", 1)
+    assert seen["thinking"] == {"type": "disabled"}
+    assert acd.DEFAULT_DEEPSEEK_MODEL == "deepseek-chat"
+
+
+# ------------------------------------------------------------ streaming ----
+
+
+class _Stream:
+    """A streamed chat response, as requests hands it back."""
+
+    def __init__(self, lines, status=200, cut_after=None):
+        self.status_code = status
+        self.encoding = None
+        self._lines = lines
+        self._cut_after = cut_after
+        self.text = ""
+
+    def iter_lines(self, decode_unicode=False):
+        for index, line in enumerate(self._lines):
+            if self._cut_after is not None and index == self._cut_after:
+                raise acd.requests.exceptions.ChunkedEncodingError("cut")
+            yield line
+
+    def close(self):
+        pass
+
+
+def _sse(**delta):
+    return "data: " + json.dumps({"choices": [{"delta": delta}]}, ensure_ascii=False)
+
+
+def test_stream_chat_returns_only_the_answer(monkeypatch):
+    """Reasoning is read and discarded; the storyboard is `content` alone."""
+    lines = [_sse(reasoning_content="thinking about scenes..."),
+             _sse(content='{"scenes"'), _sse(content=': []}'), "data: [DONE]"]
+    monkeypatch.setattr(acd, "post", lambda *a, **k: _Stream(lines))
+    assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == '{"scenes": []}'
+
+
+def test_stream_chat_asks_for_a_stream_and_decodes_utf8(monkeypatch):
+    """requests guesses Latin-1 for an event stream; the Chinese came back as mojibake."""
+    seen = {}
+    stream = _Stream([_sse(content="很多人以为"), "data: [DONE]"])
+
+    def fake_post(url, **kwargs):
+        seen.update(kwargs)
+        return stream
+
+    monkeypatch.setattr(acd, "post", fake_post)
+    assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == "很多人以为"
+    assert seen["json"]["stream"] is True and seen["stream"] is True
+    assert stream.encoding == "utf-8"
+
+
+def test_a_model_that_only_reasons_is_named_rather_than_blamed_on_json(monkeypatch):
+    """The failure that looked like a network fault, reported as what it is."""
+    lines = [_sse(reasoning_content="x" * 500), "data: [DONE]"]
+    monkeypatch.setattr(acd, "post", lambda *a, **k: _Stream(lines))
+    with pytest.raises(RuntimeError, match="returned no answer") as caught:
+        acd.stream_chat("u", "k", {"model": "deepseek-v4-flash"}, "Test")
+    assert "deepseek-v4-flash" in str(caught.value)
+    assert "500 characters of reasoning" in str(caught.value)
+
+
+def test_a_stream_cut_midway_is_started_again(monkeypatch):
+    """What arrived before the cut is not a storyboard, so it is not kept."""
+    attempts = iter([
+        _Stream([_sse(content="{partial"), _sse(content="more")], cut_after=1),
+        _Stream([_sse(content='{"ok": true}'), "data: [DONE]"]),
+    ])
+    monkeypatch.setattr(acd, "post", lambda *a, **k: next(attempts))
+    monkeypatch.setattr(acd.time, "sleep", lambda seconds: None)
+    assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == '{"ok": true}'
+
+
+def test_the_storyboard_goes_to_the_director_endpoint(monkeypatch, tmp_path):
+    cfg = _director_env(monkeypatch, tmp_path, DEEPSEEK_API_KEY="sk-test")
+    seen = {}
+
+    def fake_stream_chat(url, api_key, body, what):
+        seen.update(url=url, key=api_key, model=body["model"])
+        return '{"scenes": [{"text": "一句", "image_prompt": "x"}]}'
+
+    monkeypatch.setattr(acd, "stream_chat", fake_stream_chat)
+    data = acd.request_storyboard(cfg, "brief", "copy", 1)
+    assert seen == {"url": "https://api.deepseek.com/chat/completions",
+                    "key": "sk-test", "model": "deepseek-chat"}
+    assert data["scenes"][0]["text"] == "一句"
