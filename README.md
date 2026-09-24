@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 python animated_caption_draft.py --check-config
 ```
 
-没报错就可以出片：
+有问题会一次全部列出来（缺剪映草稿目录、缺 Key、缺音色……逐条编号），不用一轮一轮地试。没报错就可以出片：
 
 ```powershell
 python animated_caption_draft.py --draft-name my_story --title "示例标题" --input copy.txt
@@ -465,7 +465,7 @@ python animated_caption_draft.py --draft-name my_story --title "示例标题" --
 python animated_caption_draft.py --draft-name demo --title "示例标题" --text "这里是文案。"
 ```
 
-只看分镜方案，不生成媒体（仍会调用文本模型）：
+只看分镜方案，不生成媒体（仍会调用文本模型）。这一步只需要文本模型的 Key —— 本机没装剪映、还没选音色、没有开场音效都不影响；如果 `output/<草稿名>/` 里已经有分镜，需要加 `--replace` 才会重新规划：
 
 ```powershell
 python animated_caption_draft.py --draft-name preview --input copy.txt --plan-only
@@ -480,8 +480,8 @@ python animated_caption_draft.py --draft-name preview --input copy.txt --plan-on
 | `--title` | 片头标题；省略则取文案首行 |
 | `--resume DRAFT_NAME` | 从断点续跑，复用已生成的素材 |
 | `--replace` | 允许覆盖同名草稿（**会删掉整个草稿文件夹**） |
-| `--check-config` | 只校验配置和素材，不调用任何 API |
-| `--plan-only` | 只生成并打印分镜方案 |
+| `--check-config` | 只校验配置和素材，不调用任何 API；所有问题一次列全 |
+| `--plan-only` | 只生成并打印分镜方案；只需要文本模型的 Key |
 | `--speed X` | 整片速度，覆盖 `.env` 里的 `VIDEO_SPEED` |
 | `--verbose` | 失败时打印完整调用栈 |
 

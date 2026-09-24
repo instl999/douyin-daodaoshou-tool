@@ -32,7 +32,7 @@ copy by hand; set `JIAN_YING_DRAFT_DIR` only if that lookup fails. Then:
 python animated_caption_draft.py --check-config
 ```
 
-If that passes, make a video:
+Every problem is listed at once (no drafts folder, no key, no voice… numbered), rather than one per run. If it passes, make a video:
 
 ```powershell
 python animated_caption_draft.py --draft-name my_story --title "Example title" --input copy.txt
@@ -449,7 +449,7 @@ Short copy inline:
 python animated_caption_draft.py --draft-name demo --title "Example title" --text "Copy goes here."
 ```
 
-Inspect the storyboard without generating media (this still calls the text model):
+Inspect the storyboard without generating media (this still calls the text model). It needs only the text model's key — no Jianying install, voice or opening cue; if `output/<draft-name>/` already holds a storyboard, add `--replace` to plan it afresh:
 
 ```powershell
 python animated_caption_draft.py --draft-name preview --input copy.txt --plan-only
@@ -464,8 +464,8 @@ The output shows how each line was split, its framing, which lines end a paragra
 | `--title` | Title card; defaults to the first line of the copy |
 | `--resume DRAFT_NAME` | Continue a run, reusing assets that already succeeded |
 | `--replace` | Allow overwriting an existing draft (**deletes the whole draft folder**) |
-| `--check-config` | Validate configuration and assets without calling any API |
-| `--plan-only` | Generate and print the storyboard only |
+| `--check-config` | Validate configuration and assets without calling any API; every problem is listed at once |
+| `--plan-only` | Generate and print the storyboard only; needs only the text model's key |
 | `--speed X` | Global video speed; overrides `VIDEO_SPEED` in `.env` |
 | `--verbose` | Print a full traceback on failure |
 

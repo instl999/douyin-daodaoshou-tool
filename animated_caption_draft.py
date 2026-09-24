@@ -847,6 +847,42 @@ def bounded_env_float(name: str, default: float, minimum: float, maximum: float)
     return value
 
 
+def env_choice(name: str, default: str, options: Any, message: str) -> str:
+    """One of a fixed set of words, lower-cased, or `message` as the error."""
+    value = env_value(name, default).lower()
+    if value not in options:
+        raise RuntimeError(message)
+    return value
+
+
+class ConfigProblems:
+    """Every setting that failed to parse, collected rather than raised one at a time."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def check(self, parse: Any, fallback: Any) -> Any:
+        """parse(), or `fallback` with the failure recorded."""
+        try:
+            return parse()
+        except RuntimeError as exc:
+            self.messages.append(str(exc))
+            return fallback
+
+    def or_default(self, parse: Any) -> Any:
+        """`parse`, answering its own default (its second argument) when it fails."""
+        def lenient(name: str, default: Any, *rest: Any, **options: Any) -> Any:
+            return self.check(lambda: parse(name, default, *rest, **options), default)
+        return lenient
+
+    def raise_if_any(self) -> None:
+        if len(self.messages) == 1:
+            raise RuntimeError(self.messages[0])
+        if self.messages:
+            listed = "\n".join(f"  {number}. {message}" for number, message in enumerate(self.messages, 1))
+            raise RuntimeError(f"{len(self.messages)} settings need attention:\n{listed}")
+
+
 # ----------------------------------------------------------------- speed ----
 
 def validate_speed(value: float | str | None) -> float:
@@ -1616,53 +1652,85 @@ class Config:
     ken_burns_rate: float
 
     @classmethod
-    def load(cls, speed: float | None = None) -> Config:
+    def load(cls, speed: float | None = None, purpose: str = "build") -> Config:
+        """Every setting, parsed and checked, with every problem reported at once.
+
+        `purpose` is "build" for a run, "check" for --check-config and "plan"
+        for --plan-only. A storyboard needs only the text model, so planning
+        does not ask for Jianying, a voice or the opening cue - it used to,
+        and a storyboard could not be previewed on a machine without the
+        editor installed.
+
+        A problem no longer stops the parse. Each setting that fails is
+        recorded and given its default so the rest can still be checked, and
+        the whole list is raised at the end: a fresh clone used to need three
+        rounds of --check-config to learn it wanted a drafts folder, a key
+        and a voice, one at a time.
+        """
+        problems = ConfigProblems()
+        bounded_float = problems.or_default(bounded_env_float)
+        bounded_int = problems.or_default(bounded_env_int)
+        positive_int = problems.or_default(positive_env_int)
+        flag = problems.or_default(env_flag)
+        media = purpose != "plan"
+
+        def needed(name: str) -> str:
+            return problems.check(lambda: required(name), "")
+
         # First, because most of what follows is measured against it. An
         # explicit argument is --speed on the command line; it wins over .env
         # the way every other flag does.
-        speed = validate_speed(speed if speed is not None
-                            else os.getenv("VIDEO_SPEED", "").strip() or None)
+        speed = problems.check(lambda: validate_speed(
+            speed if speed is not None else os.getenv("VIDEO_SPEED", "").strip() or None),
+            DEFAULT_VIDEO_SPEED)
 
-        mode = env_value("SCENE_LENGTH_MODE", "density").lower()
-        if mode not in {"density", "quality"}:
-            raise RuntimeError("SCENE_LENGTH_MODE must be either density or quality.")
-
-        subtitle_style = env_value("SUBTITLE_STYLE", "plate").lower()
-        if subtitle_style not in {"plate", "outline", "box"}:
-            raise RuntimeError("SUBTITLE_STYLE must be one of: plate, outline, box.")
-
-        image_reference = env_value("IMAGE_REFERENCE", "off").lower()
-        if image_reference not in IMAGE_REFERENCE_MODES:
-            raise RuntimeError(f"IMAGE_REFERENCE must be one of: {', '.join(IMAGE_REFERENCE_MODES)}.")
+        mode = problems.check(lambda: env_choice(
+            "SCENE_LENGTH_MODE", "density", {"density", "quality"},
+            "SCENE_LENGTH_MODE must be either density or quality."), "density")
+        subtitle_style = problems.check(lambda: env_choice(
+            "SUBTITLE_STYLE", "plate", {"plate", "outline", "box"},
+            "SUBTITLE_STYLE must be one of: plate, outline, box."), "plate")
+        image_reference = problems.check(lambda: env_choice(
+            "IMAGE_REFERENCE", "off", IMAGE_REFERENCE_MODES,
+            f"IMAGE_REFERENCE must be one of: {', '.join(IMAGE_REFERENCE_MODES)}."), "off")
 
         # The art style is resolved first because it supplies the defaults for
         # the colour grade and the title colourway, which .env then overrides.
-        style_presets, style_default, styles_source = load_style_presets()
-
+        loaded = problems.check(load_style_presets, None)
+        style_presets, style_default, styles_source = loaded or (
+            dict(STYLE_PRESETS), DEFAULT_STYLE_PRESET, "built-in (the styles file has a problem)")
         style_preset = env_value("IMAGE_STYLE_PRESET", style_default).lower()
         if style_preset not in style_presets:
-            options = ", ".join(sorted(style_presets))
-            raise RuntimeError(
-                f"IMAGE_STYLE_PRESET must be one of: {options}. "
-                f"(Presets come from {styles_file_path()}; edit it or point "
-                f"{STYLES_FILE_SETTING} at another file to add your own.)"
-            )
+            # Only worth saying when the styles file itself was read: against
+            # the built-ins alone, a preset of your own is bound to look unknown.
+            if loaded is not None:
+                problems.messages.append(
+                    f"IMAGE_STYLE_PRESET must be one of: {', '.join(sorted(style_presets))}. "
+                    f"(Presets come from {styles_file_path()}; edit it or point "
+                    f"{STYLES_FILE_SETTING} at another file to add your own.)"
+                )
+            style_preset = style_default if style_default in style_presets else DEFAULT_STYLE_PRESET
         style = style_presets[style_preset]
 
-        title_style = env_value("TITLE_STYLE", style.title).lower()
-        if title_style not in TITLE_PRESETS:
-            options = ", ".join(sorted(TITLE_PRESETS))
-            raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
-        title_color_mode = env_value("TITLE_COLOR_MODE", "").lower()
-        if title_color_mode not in {"", "ramp", "lines"}:
-            raise RuntimeError("TITLE_COLOR_MODE must be ramp or lines (or empty to follow the colourway).")
+        title_style = problems.check(lambda: env_choice(
+            "TITLE_STYLE", style.title, TITLE_PRESETS,
+            f"TITLE_STYLE must be one of: {', '.join(sorted(TITLE_PRESETS))}."), DEFAULT_TITLE_STYLE)
+        title_color_mode = problems.check(lambda: env_choice(
+            "TITLE_COLOR_MODE", "", {"", "ramp", "lines"},
+            "TITLE_COLOR_MODE must be ramp or lines (or empty to follow the colourway)."), "")
 
-        draft_dir, draft_dir_source = resolve_draft_dir()
+        if media:
+            draft_dir, draft_dir_source = problems.check(resolve_draft_dir, (Path(), "unresolved"))
+        else:
+            draft_dir, draft_dir_source = Path(), "not needed to plan"
 
-        ark_api_key = required("ARK_API_KEY")
         ark_base_url = env_value("ARK_BASE_URL", DEFAULT_ARK_BASE_URL).rstrip("/")
         ark_text_model = env_value("ARK_TEXT_MODEL", DEFAULT_ARK_TEXT_MODEL)
         deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+        # Ark draws and speaks, so a run always needs its key; a plan needs it
+        # only when the storyboard is written on Ark too.
+        ark_api_key = (needed("ARK_API_KEY") if media or not deepseek_key
+                       else os.getenv("ARK_API_KEY", "").strip())
         if deepseek_key:
             text_provider = "deepseek"
             text_base_url = env_value("DEEPSEEK_BASE_URL", DEFAULT_DEEPSEEK_BASE_URL).rstrip("/")
@@ -1675,7 +1743,7 @@ class Config:
         seed_raw = os.getenv("ARK_IMAGE_SEED", "").strip()
         price_raw = os.getenv("ARK_IMAGE_CNY_PER_IMAGE", "").strip()
 
-        return cls(
+        config = cls(
             speed=speed,
             ark_api_key=ark_api_key,
             ark_base_url=ark_base_url,
@@ -1684,7 +1752,7 @@ class Config:
             text_api_key=text_api_key,
             text_model=text_model,
             text_provider=text_provider,
-            scene_characters=positive_env_int(
+            scene_characters=positive_int(
                 "SCENE_CHARACTERS_PER_IMAGE", DEFAULT_SCENE_CHARACTERS, minimum=MIN_SCENE_CHARACTERS
             ),
             scene_length_mode=mode,
@@ -1694,11 +1762,11 @@ class Config:
             ark_image_size=env_value("ARK_IMAGE_SIZE", "2560x1440"),
             ark_image_response_format=env_value("ARK_IMAGE_RESPONSE_FORMAT", "url"),
             ark_image_output_format=env_value("ARK_IMAGE_OUTPUT_FORMAT", "png"),
-            ark_image_seed=positive_env_int("ARK_IMAGE_SEED", 0, minimum=0) if seed_raw else None,
+            ark_image_seed=positive_int("ARK_IMAGE_SEED", 0, minimum=0) if seed_raw else None,
             ark_image_cny_per_image=(
-                bounded_env_float("ARK_IMAGE_CNY_PER_IMAGE", 0.0, 0.0, 1000.0) if price_raw else None
+                bounded_float("ARK_IMAGE_CNY_PER_IMAGE", 0.0, 0.0, 1000.0) if price_raw else None
             ),
-            image_concurrency=bounded_env_int(
+            image_concurrency=bounded_int(
                 "IMAGE_CONCURRENCY", DEFAULT_IMAGE_CONCURRENCY, 1, MAX_IMAGE_CONCURRENCY
             ),
             image_style_prompt=env_value("IMAGE_STYLE_PROMPT", style.prompt),
@@ -1709,15 +1777,15 @@ class Config:
 
             ark_tts_url=env_value("ARK_TTS_URL", DEFAULT_ARK_TTS_URL),
             ark_tts_model=env_value("ARK_TTS_MODEL", DEFAULT_ARK_TTS_MODEL),
-            ark_tts_voice_type=required("ARK_TTS_VOICE_TYPE"),
+            ark_tts_voice_type=needed("ARK_TTS_VOICE_TYPE") if media else os.getenv("ARK_TTS_VOICE_TYPE", "").strip(),
             # The copy is *re-spoken* faster, not resampled afterwards: the
             # service takes a rate, so there is no pitch shift, and the scene
             # lengths that everything else is cut to are still measured from
             # the audio that actually came back.
             ark_tts_speech_rate=speech_rate_for(
-                speed, bounded_env_int("ARK_TTS_SPEECH_RATE", 0, -50, 100)),
-            ark_tts_loudness_rate=bounded_env_int("ARK_TTS_LOUDNESS_RATE", 0, -50, 100),
-            tts_concurrency=bounded_env_int("TTS_CONCURRENCY", 3, 1, MAX_IMAGE_CONCURRENCY),
+                speed, bounded_int("ARK_TTS_SPEECH_RATE", 0, -50, 100)),
+            ark_tts_loudness_rate=bounded_int("ARK_TTS_LOUDNESS_RATE", 0, -50, 100),
+            tts_concurrency=bounded_int("TTS_CONCURRENCY", 3, 1, MAX_IMAGE_CONCURRENCY),
 
             draft_dir=draft_dir,
             draft_dir_source=draft_dir_source,
@@ -1725,39 +1793,39 @@ class Config:
             # by; it ships with the repo, and nothing synthesises a stand-in
             # for it, so a missing one is a broken install rather than a
             # missing option.
-            opening_sound_path=_require_asset(
-                "OPENING_SOUND_PATH", DEFAULT_OPENING_SOUND_PATH, {".mp3", ".wav"}
-            ),
+            opening_sound_path=problems.check(lambda: _require_asset(
+                "OPENING_SOUND_PATH", DEFAULT_OPENING_SOUND_PATH, {".mp3", ".wav"}), Path()) if media else Path(),
             # Unity by default: the opening cue plays exactly as supplied. It
             # is the user's own file and is meant to sound the way it sounds.
-            opening_sound_volume=bounded_env_float("OPENING_SOUND_VOLUME", 1.0, 0.0, 2.0),
+            opening_sound_volume=bounded_float("OPENING_SOUND_VOLUME", 1.0, 0.0, 2.0),
             opening_lead_us=paced_us(
-                round(bounded_env_float("OPENING_LEAD_SECONDS", 0.8, 0.0, 5.0) * 1_000_000),
+                round(bounded_float("OPENING_LEAD_SECONDS", 0.8, 0.0, 5.0) * 1_000_000),
                 speed),
-            speak_title=env_flag("SPEAK_TITLE", True),
+            speak_title=flag("SPEAK_TITLE", True),
             # Scaled with the rest even though it is measured off the cue's
             # own decay: the title's voice is now 1.2x too, so a lead left at
             # 0.45 s would be a longer share of a shorter opening.
             title_lead_us=paced_us(
-                round(bounded_env_float("TITLE_LEAD_SECONDS", DEFAULT_TITLE_LEAD_SECONDS, 0.0, 3.0)
+                round(bounded_float("TITLE_LEAD_SECONDS", DEFAULT_TITLE_LEAD_SECONDS, 0.0, 3.0)
                       * 1_000_000),
                 speed,
             ),
             # An explicit track, which wins over the library when set.
-            bgm_path=_optional_asset("BGM_PATH", BGM_SUFFIXES),
-            bgm_library=_optional_dir("BGM_LIBRARY", DEFAULT_BGM_LIBRARY),
+            bgm_path=problems.check(lambda: _optional_asset("BGM_PATH", BGM_SUFFIXES), None) if media else None,
+            bgm_library=(problems.check(lambda: _optional_dir("BGM_LIBRARY", DEFAULT_BGM_LIBRARY), None)
+                         if media else None),
             # Both levels are quoted as linear gain and both now sit in the
             # 20-25 dB below the voice that a bed under narration wants. The
             # lift used to be 0.20, which is 14 dB down: audibly music rather
             # than atmosphere, and the one thing in the mix loud enough to
             # compete with the line that follows it.
-            bgm_volume=bounded_env_float("BGM_VOLUME", DEFAULT_BGM_VOLUME, 0.0, 1.0),
-            bgm_lift_volume=bounded_env_float("BGM_LIFT_VOLUME", DEFAULT_BGM_LIFT_VOLUME, 0.0, 1.0),
+            bgm_volume=bounded_float("BGM_VOLUME", DEFAULT_BGM_VOLUME, 0.0, 1.0),
+            bgm_lift_volume=bounded_float("BGM_LIFT_VOLUME", DEFAULT_BGM_LIFT_VOLUME, 0.0, 1.0),
             bgm_ramp_us=paced_us(
-                round(bounded_env_float("BGM_RAMP_SECONDS", 0.25, 0.05, 2.0) * 1_000_000),
+                round(bounded_float("BGM_RAMP_SECONDS", 0.25, 0.05, 2.0) * 1_000_000),
                 speed),
             paragraph_pause_us=paced_us(
-                round(bounded_env_float("PARAGRAPH_PAUSE_SECONDS", 0.5, 0.0, 3.0) * 1_000_000),
+                round(bounded_float("PARAGRAPH_PAUSE_SECONDS", 0.5, 0.0, 3.0) * 1_000_000),
                 speed),
             # Zero: the video ends on the last syllable of the last
             # subtitle. It used to hold 1.8s on the closing picture, which
@@ -1766,47 +1834,48 @@ class Config:
             # air at the end of every upload. Set it if a still close is
             # wanted; nothing else in the timeline depends on it being there.
             ending_hold_us=paced_us(
-                round(bounded_env_float("ENDING_HOLD_SECONDS", 0.0, 0.0, 10.0) * 1_000_000),
+                round(bounded_float("ENDING_HOLD_SECONDS", 0.0, 0.0, 10.0) * 1_000_000),
                 speed),
-            watermark_path=_optional_asset("WATERMARK_PATH", {".png", ".jpg", ".jpeg"}),
+            watermark_path=(problems.check(lambda: _optional_asset("WATERMARK_PATH", {".png", ".jpg", ".jpeg"}), None)
+                            if media else None),
             color_grade=env_value("COLOR_GRADE", style.grade),
-            color_grade_intensity=bounded_env_float("COLOR_GRADE_INTENSITY", 12.0, 0.0, 100.0),
+            color_grade_intensity=bounded_float("COLOR_GRADE_INTENSITY", 12.0, 0.0, 100.0),
 
-            subtitle_y=layout_y(bounded_env_int(
+            subtitle_y=layout_y(bounded_int(
                 "NARRATION_SUBTITLE_Y", DEFAULT_NARRATION_SUBTITLE_Y,
                 -LAYOUT_REFERENCE_HALF_HEIGHT, LAYOUT_REFERENCE_HALF_HEIGHT,
             )),
-            subtitle_size=bounded_env_float("NARRATION_SUBTITLE_SIZE", DEFAULT_SUBTITLE_SIZE, 1.0, 30.0),
+            subtitle_size=bounded_float("NARRATION_SUBTITLE_SIZE", DEFAULT_SUBTITLE_SIZE, 1.0, 30.0),
             subtitle_font=env_value("SUBTITLE_FONT", DEFAULT_SUBTITLE_FONT),
             subtitle_style=subtitle_style,
-            subtitle_border_width=bounded_env_float(
+            subtitle_border_width=bounded_float(
                 "SUBTITLE_BORDER_WIDTH", DEFAULT_SUBTITLE_BORDER_WIDTH, 0.0, 40.0
             ),
-            subtitle_letter_spacing=bounded_env_int("SUBTITLE_LETTER_SPACING", 2, 0, 20),
-            subtitle_max_line_width=bounded_env_float("SUBTITLE_MAX_LINE_WIDTH", 0.88, 0.4, 1.0),
-            subtitle_em_px=bounded_env_float("SUBTITLE_EM_PX", DEFAULT_SUBTITLE_EM_PX, 1.0, 40.0),
+            subtitle_letter_spacing=bounded_int("SUBTITLE_LETTER_SPACING", 2, 0, 20),
+            subtitle_max_line_width=bounded_float("SUBTITLE_MAX_LINE_WIDTH", 0.88, 0.4, 1.0),
+            subtitle_em_px=bounded_float("SUBTITLE_EM_PX", DEFAULT_SUBTITLE_EM_PX, 1.0, 40.0),
             subtitle_animation=env_value("SUBTITLE_ANIMATION", "向上擦除"),
             subtitle_animation_us=paced_us(
-                round(bounded_env_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000),
+                round(bounded_float("SUBTITLE_ANIMATION_SECONDS", 0.3, 0.0, 3.0) * 1_000_000),
                 speed,
             ),
             title_style=title_style,
             title_ramp=(TITLE_PRESETS[title_style].ramp if not title_color_mode
                         else title_color_mode == "ramp"),
             title_font=env_value("TITLE_FONT", DEFAULT_TITLE_FONT),
-            title_y=layout_y(bounded_env_int(
+            title_y=layout_y(bounded_int(
                 "TITLE_Y", DEFAULT_TITLE_Y,
                 -LAYOUT_REFERENCE_HALF_HEIGHT, LAYOUT_REFERENCE_HALF_HEIGHT,
             )),
-            title_size=bounded_env_float("TITLE_SIZE", DEFAULT_TITLE_SIZE, 1.0, 30.0),
-            title_border_width=bounded_env_float(
+            title_size=bounded_float("TITLE_SIZE", DEFAULT_TITLE_SIZE, 1.0, 30.0),
+            title_border_width=bounded_float(
                 "TITLE_BORDER_WIDTH", DEFAULT_TITLE_BORDER_WIDTH, 0.0, 40.0
             ),
-            title_max_line_width=bounded_env_float(
+            title_max_line_width=bounded_float(
                 "TITLE_MAX_LINE_WIDTH", DEFAULT_TITLE_MAX_LINE_WIDTH, 0.4, 1.0
             ),
             title_us=paced_us(
-                round(bounded_env_float("TITLE_SECONDS", DEFAULT_TITLE_SECONDS, 0.5, 15.0)
+                round(bounded_float("TITLE_SECONDS", DEFAULT_TITLE_SECONDS, 0.5, 15.0)
                       * 1_000_000),
                 speed,
             ),
@@ -1822,11 +1891,12 @@ class Config:
             # is simply running faster, rather than a push that has slowed to a
             # crawl underneath quicker narration.
             ken_burns_rate=(
-                bounded_env_float("KEN_BURNS_RATE", DEFAULT_KEN_BURNS_RATE, 0.0, 0.2) * speed
-                if env_flag("KEN_BURNS", True) else 0.0
+                bounded_float("KEN_BURNS_RATE", DEFAULT_KEN_BURNS_RATE, 0.0, 0.2) * speed
+                if flag("KEN_BURNS", True) else 0.0
             ),
         )
-
+        problems.raise_if_any()
+        return config
 
 def _cjk_share(text: str) -> float:
     """Fraction of the letters in `text` that are CJK."""
@@ -2857,6 +2927,16 @@ def validate_draft_target(cfg: Config, draft_name: str, replace: bool) -> None:
         )
 
 
+def validate_plan_target(asset_root: Path, draft_name: str, replace: bool) -> None:
+    """Planning writes no draft, but it does replace the run's storyboard."""
+    if (asset_root / "manifest.json").is_file() and not replace:
+        raise RuntimeError(
+            f"output/{draft_name} already holds a storyboard. Use a new --draft-name, "
+            f"--resume {draft_name} --plan-only to print the one it has, "
+            "or add --replace to plan it afresh."
+        )
+
+
 def build_draft(cfg: Config, scenes: list[Scene], draft_name: str, replace: bool,
                 title: str, title_audio: Path | None = None,
                 opening_sound: Path | None = None,
@@ -3590,7 +3670,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     load_env()
-    cfg = Config.load(speed=args.speed)
+    cfg = Config.load(speed=args.speed,
+                      purpose="check" if args.check_config else "plan" if args.plan_only else "build")
     if args.check_config:
         print("Configuration OK")
         describe_configuration(cfg)
@@ -3647,8 +3728,9 @@ def main(argv: list[str] | None = None) -> int:
         previous_speed = validate_speed(state.get("speed", BASELINE_VIDEO_SPEED))
         # A resume used to overwrite the draft unconditionally, which deletes
         # any edits already made in Jianying. It now needs --replace like any
-        # other run.
-        validate_draft_target(cfg, draft_name, args.replace)
+        # other run. Printing the plan writes no draft, so it needs neither.
+        if not args.plan_only:
+            validate_draft_target(cfg, draft_name, args.replace)
         append_run_log(asset_root, "resume_started", scene_count=len(scenes))
     else:
         if not args.text and not args.input:
@@ -3661,8 +3743,11 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError(f"Copy is {copy_character_count} characters; the current maximum is {MAX_COPY_CHARACTERS}.")
         title = args.title or next((line.strip() for line in copy.splitlines() if line.strip()), copy.strip())
         draft_name = args.draft_name or time.strftime("auto_video_%Y%m%d_%H%M%S")
-        validate_draft_target(cfg, draft_name, args.replace)
         asset_root = ROOT / "output" / draft_name
+        if args.plan_only:
+            validate_plan_target(asset_root, draft_name, args.replace)
+        else:
+            validate_draft_target(cfg, draft_name, args.replace)
         asset_root.mkdir(parents=True, exist_ok=True)
         target_scenes, maximum_scenes = scene_limits(cfg.scene_length_mode, cfg.scene_characters, copy)
         print_image_cost_estimate(cfg, target_scenes, maximum_scenes)

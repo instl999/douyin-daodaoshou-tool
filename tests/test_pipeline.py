@@ -1773,3 +1773,67 @@ def test_the_prompt_says_what_a_reference_is_for():
 def test_an_unknown_reference_mode_is_refused(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="IMAGE_REFERENCE"):
         _director_env(monkeypatch, tmp_path, IMAGE_REFERENCE="everything")
+
+
+# ---------------------------------------------------- every problem at once --
+# A fresh clone used to need three rounds of --check-config to learn it wanted
+# a drafts folder, a key and a voice, one at a time.
+
+
+def _bare_env(monkeypatch, tmp_path, **values):
+    for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR", "DEEPSEEK_API_KEY",
+                 "OPENING_SOUND_PATH", "NARRATION_SUBTITLE_SIZE", "IMAGE_STYLES_FILE", "IMAGE_STYLE_PRESET"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(acd, "jianying_app_roots", list)
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_every_problem_is_reported_at_once(monkeypatch, tmp_path):
+    _bare_env(monkeypatch, tmp_path, NARRATION_SUBTITLE_SIZE="huge")
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load()
+    message = str(caught.value)
+    assert message.startswith("4 settings need attention:")
+    for named in ("JIAN_YING_DRAFT_DIR", "ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "NARRATION_SUBTITLE_SIZE"):
+        assert named in message, named
+    assert "\n  4. " in message
+
+
+def test_a_single_problem_reads_exactly_as_it_always_did(monkeypatch, tmp_path):
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    _bare_env(monkeypatch, tmp_path, JIAN_YING_DRAFT_DIR=str(drafts), ARK_TTS_VOICE_TYPE="v")
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load()
+    assert str(caught.value) == "Missing ARK_API_KEY; set it in .env."
+
+
+def test_a_plan_needs_only_the_text_model(monkeypatch, tmp_path):
+    """No Jianying, no voice, no cue: a storyboard can still be previewed."""
+    _bare_env(monkeypatch, tmp_path, DEEPSEEK_API_KEY="sk-test", OPENING_SOUND_PATH=str(tmp_path / "missing.mp3"))
+    cfg = acd.Config.load(purpose="plan")
+    assert cfg.text_provider == "deepseek"
+    with pytest.raises(RuntimeError, match="4 settings need attention") as caught:
+        acd.Config.load()          # a real run still needs every one of them
+    assert "OPENING_SOUND_PATH" in str(caught.value)
+
+
+def test_a_plan_written_on_ark_still_needs_the_ark_key(monkeypatch, tmp_path):
+    _bare_env(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load(purpose="plan")
+    assert str(caught.value) == "Missing ARK_API_KEY; set it in .env."
+
+
+def test_a_broken_styles_file_is_not_blamed_on_the_preset_as_well(monkeypatch, tmp_path):
+    broken = tmp_path / "styles.json"
+    broken.write_text("{ not json", encoding="utf-8")
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    _bare_env(monkeypatch, tmp_path, ARK_API_KEY="k", ARK_TTS_VOICE_TYPE="v", JIAN_YING_DRAFT_DIR=str(drafts),
+              IMAGE_STYLES_FILE=str(broken), IMAGE_STYLE_PRESET="my_own_style")
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load()
+    assert "IMAGE_STYLES_FILE is not readable JSON" in str(caught.value)
+    assert "IMAGE_STYLE_PRESET must be one of" not in str(caught.value)
