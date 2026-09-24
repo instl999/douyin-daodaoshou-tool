@@ -1585,3 +1585,53 @@ def test_the_scene_a_part_was_cut_after_takes_its_breath(monkeypatch, tmp_path):
     end_of_first = len([line for line in parts[0].split("\n") if line])
     assert scenes[end_of_first - 1].pause_after, "the last scene of the first paragraph must breathe"
     assert not any(scene.pause_after for scene in scenes[:end_of_first - 1])
+
+
+# ------------------------------------------------------ the camera's choice --
+# The move used to be picked by the shot's position in a five-move rotation,
+# so a pull-out could land on the close-up a paragraph builds to.
+
+
+def _shots(*sizes, pauses=()):
+    return [acd.Scene(text="一句", image_prompt="x", shot_size=size, pause_after=index in pauses)
+            for index, size in enumerate(sizes)]
+
+
+def test_a_close_up_is_pushed_into():
+    moves = acd.plan_camera(_shots("close", "medium", "close", "medium", "close", "wide"))
+    for index in (0, 2, 4):
+        assert moves[index][0] == +1, "a close-up moves towards its subject"
+
+
+def test_a_wide_shot_reveals_its_place():
+    moves = acd.plan_camera(_shots("wide", "close", "wide", "close", "wide", "close", "medium"))
+    for index in (0, 2, 4):
+        assert moves[index][0] <= 0, "a wide shot pulls out or pans; it does not close in"
+
+
+def test_the_shot_that_ends_a_paragraph_steps_back():
+    scenes = _shots("close", "close", "medium", "close", "wide", "close", pauses={1, 3})
+    moves = acd.plan_camera(scenes)
+    for index in (1, 3, len(scenes) - 1):
+        assert moves[index][0] == -1, f"shot {index + 1} ends a thought and should pull out"
+
+
+def test_no_two_shots_in_a_row_move_the_same_way():
+    sizes = ("wide", "medium", "close", "close", "close", "medium", "medium", "wide", "wide", "close")
+    for pauses in ((), (3,), (2, 3), (4, 5, 6)):
+        moves = acd.plan_camera(_shots(*sizes, pauses=pauses))
+        assert all(a != b for a, b in zip(moves, moves[1:], strict=False)), (pauses, moves)
+
+
+def test_every_planned_move_is_one_the_edge_checks_cover():
+    """The pan and zoom safety tests iterate KEN_BURNS_MOVES."""
+    planned = set(acd.CAMERA_EXHALE)
+    for moves in acd.CAMERA_BY_SHOT.values():
+        planned |= set(moves)
+    assert planned <= set(acd.KEN_BURNS_MOVES)
+
+
+def test_the_plan_is_the_same_every_time():
+    """A --resume rebuilds the draft; the camera must not change under it."""
+    scenes = _shots("wide", "medium", "close", "medium", pauses={2})
+    assert acd.plan_camera(scenes) == acd.plan_camera(scenes)
