@@ -55,7 +55,7 @@ python animated_caption_draft.py --draft-name my_story --title "示例标题" --
 **先看分镜，再决定是否生图**
 
 ```text
-读取 copy.txt，用 midnight 画风为“为什么越忙越焦虑”制作分镜预览。先运行 --plan-only，检查每镜主体、景别和角色一致性，并告诉我预计会生成多少张图；先不要生成媒体。
+读取 copy.txt，用 midnight 画风为“为什么越忙越焦虑”制作分镜预览，草稿名用 anxiety_story。先运行 --plan-only，检查每镜主体、景别和角色一致性，并告诉我预计会生成多少张图；先不要生成媒体。我确认后用 --resume anxiety_story 按这份分镜出片，不要重新规划。
 ```
 
 **从文案生成可编辑剪映草稿**
@@ -67,7 +67,7 @@ python animated_caption_draft.py --draft-name my_story --title "示例标题" --
 **换画风或修某个镜头**
 
 ```text
-检查 output/anxiety_story 的现有结果。把画风改成 noir，或只修复画面不合适的镜头；尽量复用现有旁白和已成功素材，说明哪些操作会触发新的生图费用。
+检查 output/anxiety_story 的现有结果。把画风改成 noir（会重画每一张），或者只用 --redo 重画画面不合适的那几镜；尽量复用现有旁白和已成功素材，花钱之前先说明会重画几张。
 ```
 
 > 费用提醒：`--check-config` 不调用 API；`--plan-only` 仍会调用文本模型；完整生成会调用文本、TTS 和生图服务。Agent Plan 不是免费额度，运行前请在火山方舟控制台确认当前价格与余额。
@@ -473,12 +473,44 @@ python animated_caption_draft.py --draft-name preview --input copy.txt --plan-on
 
 输出里能看到每一句被拆成什么、**主体是什么**、用什么景别、哪句是段落结尾、抽出了哪些角色。**画面不理想时先看这里** —— 画风提示词是拼在分镜描述之后的，如果 `subject` 选错了、或者 `image_prompt` 里塞了一整段场景，改画风没有用。
 
+### 先审分镜、改分镜，再出片
+
+`--plan-only` 做出来的分镜就存在 `output/<草稿名>/manifest.json` 里。审完直接用 `--resume`
+接着出片，**用的就是你审过的这一份** —— 不会重新规划，也不会再为分镜付一次费：
+
+```powershell
+python animated_caption_draft.py --draft-name my_story --input copy.txt --plan-only
+# 看输出；需要的话直接改 output/my_story/manifest.json 里某一镜的
+# text / subject / image_prompt / shot_size / pause_after
+python animated_caption_draft.py --resume my_story
+```
+
+反过来，如果审完又从头跑一遍（不带 `--resume`），分镜会重新生成 —— 模型每次拆句都不一样，
+你审过的那一份就不是最后做出来的那一份了。
+
+出片之后也可以这样改：改了某一镜的 `image_prompt` 再 `--resume`，只重画那一张；改了某一镜的
+`text`，只重念那一句（见[断点恢复](#断点恢复)）。
+
+### 只重画某几张：`--redo`
+
+提示词没问题、只是这一张画得不好时，不用改任何东西：
+
+```powershell
+python animated_caption_draft.py --resume my_story --redo 3,7 --replace
+```
+
+`--redo` 接受 `3,7`、`3-5` 这样的写法，只重画点到的镜头，配音和其他画面全部复用。每重画一次
+就是一个新的 take：新画面是新文件，**上一张还留在磁盘上**，想换回去改 manifest 里的 `take` 即可。
+填了 `ARK_IMAGE_SEED` 时，每个 take 的种子会顺延一位 —— 同样的提示词加同样的种子，只会画出
+同一张图。草稿已经在剪映里时需要 `--replace`，和其他续跑一样。
+
 | 参数 | 作用 |
 | --- | --- |
 | `--input` / `--text` | 文案来源，二选一 |
 | `--draft-name` | 剪映里的草稿名；省略则用时间戳 |
 | `--title` | 片头标题；省略则取文案首行 |
-| `--resume DRAFT_NAME` | 从断点续跑，复用已生成的素材 |
+| `--resume DRAFT_NAME` | 从断点续跑，复用已生成的素材；也用来按审过的分镜出片 |
+| `--redo 3,7` | 配合 `--resume`：只重画这几镜的画面（新的 take，上一张保留） |
 | `--replace` | 允许覆盖同名草稿（**会删掉整个草稿文件夹**） |
 | `--check-config` | 只校验配置和素材，不调用任何 API；所有问题一次列全 |
 | `--plan-only` | 只生成并打印分镜方案；只需要文本模型的 Key |
