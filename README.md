@@ -36,7 +36,7 @@ python animated_caption_draft.py --check-config
 python animated_caption_draft.py --draft-name my_story --title "示例标题" --input copy.txt
 ```
 
-跑完打开剪映，草稿列表里就有 `my_story` 了。
+跑完打开剪映，草稿列表里就有 `my_story` 了。终端最后一段是这次的汇总：几镜、几段、片长，这次念了几句、画了几张、复用了多少、大约花了多少，配了哪首 BGM、用的什么画风和标题配色 —— 同样记进 `run.log`。
 
 ---
 

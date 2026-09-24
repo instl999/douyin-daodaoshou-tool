@@ -504,3 +504,45 @@ def test_a_plan_says_what_making_it_would_cost(studio, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Plan: 3 scene(s). Images: 3 to draw, 0 reused - about CNY 0.75" in out
     assert "over MAX_IMAGES=2" in out
+
+
+# ------------------------------------------------------------ the summary --
+
+def _summary(out: str) -> str:
+    return out[out.index("Done: "):]
+
+
+def test_a_finished_run_ends_on_what_it_made_and_paid_for(studio, monkeypatch, capsys):
+    monkeypatch.setenv("ARK_IMAGE_CNY_PER_IMAGE", "0.25")
+    assert studio.run("--draft-name", "story", "--text", COPY, "--title", "一个正文里没有的标题") == 0
+    summary = _summary(capsys.readouterr().out)
+    assert "Scenes      3, in 1 paragraph(s)" in summary
+    assert "Narration   3 line(s) - 3 read this run, 0 reused; title voice read this run" in summary
+    assert "Pictures    3 frame(s) - 3 drawn this run (about CNY 0.75), 0 reused" in summary
+    assert "Music       no music" in summary
+    assert "Look        midnight 深蓝彩漫, grade 深蓝电影感, title crimson (ramp)" in summary
+    content = studio.draft("story")
+    assert f"Length      {acd.format_length(content['duration'])} at 1.20x" in summary
+
+
+def test_a_resume_says_what_it_reused(studio, capsys):
+    assert studio.run("--draft-name", "story", "--text", COPY, "--title", "一个正文里没有的标题") == 0
+    capsys.readouterr()
+    assert studio.run("--resume", "story", "--replace") == 0
+    summary = _summary(capsys.readouterr().out)
+    assert "0 read this run, 3 reused; title voice reused" in summary
+    assert "0 drawn this run, 3 reused" in summary
+
+
+def test_the_summary_is_in_the_run_log_too(studio):
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    events = [json.loads(line) for line in
+              (studio.root / "output" / "story" / "run.log").read_text(encoding="utf-8").splitlines()]
+    summary = next(event for event in events if event["event"] == "summary")
+    assert any(line.startswith("Pictures") for line in summary["lines"])
+
+
+@pytest.mark.parametrize("microseconds, shown", [(42_300_000, "42.3s"), (72_400_000, "1:12.4"),
+                                                 (600_000_000, "10:00.0")])
+def test_lengths_read_the_way_an_editor_writes_them(microseconds, shown):
+    assert acd.format_length(microseconds) == shown
