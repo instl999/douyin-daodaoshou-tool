@@ -80,6 +80,12 @@ Inspect the existing output/anxiety_story run. Switch it to the noir preset (whi
 > Cost note: `--check-config` makes no API calls; `--plan-only` still calls the
 > text model; a full run uses text, TTS and image APIs. Agent Plan is not a free
 > image allowance, so check current pricing and balance in the Ark console.
+> Once the storyboard exists, and before any narration or picture is paid for,
+> the run prints the **exact** number of frames it will draw and reuse (with a
+> price when `ARK_IMAGE_CNY_PER_IMAGE` is set); `--plan-only` ends on the same
+> line. For unattended runs, set `MAX_IMAGES`: over it, the run stops before
+> spending, with the storyboard saved — raise the cap or trim the storyboard,
+> then `--resume`.
 
 ---
 
@@ -683,6 +689,8 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `TITLE_FONT` | `优设标题黑` | Title font |
 | `TITLE_SIZE` / `TITLE_Y` | `19.5` / `0` | Title size and position; defaults match the reference video |
 | `IMAGE_CONCURRENCY` | `3` | Image workers; lower it on HTTP 429 |
+| `ARK_IMAGE_CNY_PER_IMAGE` | empty | Price per image (CNY), used only for the estimate the terminal prints |
+| `MAX_IMAGES` | empty = no cap | Most frames one run may draw; over it the run stops before narration and images (the storyboard is kept) |
 | `IMAGE_REFERENCE` | `off` | `anchor` draws one frame first and sends it with every other frame as a reference (experimental; see [Matching every frame to one](#matching-every-frame-to-one-experimental-off-by-default)) |
 
 ### Layout coordinate units
