@@ -656,7 +656,7 @@ python -m ruff check .
 | 现象 | 处理 |
 | --- | --- |
 | HTTP 429 | 调小 `IMAGE_CONCURRENCY`。错误信息里带了接口返回的原文，可据此区分限流和欠费 |
-| SSL EOF / 网络中断 | 稍后 `--resume`，必要时临时把并发降到 1 |
+| SSL EOF / 网络中断 | 稍后 `--resume`，必要时临时把并发降到 1。生图请求如果在服务器可能已经收下之后才断开，**不会自动重发**（重发可能同一张图扣两次费）；`--resume` 只补画缺的那几张 |
 | 分镜阶段报 `Network request failed after 3 attempts` | 旧版本的症状：模型在「思考」、一直不回数据，连接被掐。现在的版本已经关掉思考并改成流式；还报的话填上 `DEEPSEEK_API_KEY` |
 | 找不到开场音效 | 确认 `OPENING_SOUND_PATH` 指向存在的 MP3 或 WAV |
 | 找不到剪映目录 | 自动探测失败时才需要填 `JIAN_YING_DRAFT_DIR`；剪映里 全局设置 → 草稿位置 就是要填的路径 |

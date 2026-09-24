@@ -1445,3 +1445,84 @@ def test_the_storyboard_goes_to_the_director_endpoint(monkeypatch, tmp_path):
     assert seen == {"url": "https://api.deepseek.com/chat/completions",
                     "key": "sk-test", "model": "deepseek-chat"}
     assert data["scenes"][0]["text"] == "一句"
+
+
+# ---------------------------------------------------- billed requests, retried --
+# A timed-out POST may already have been accepted upstream. Retried, a billed
+# request pays twice for one frame and orphans the first job; the opt-out was
+# written for exactly that and no caller used it.
+
+
+def _failing(monkeypatch, exc):
+    calls = []
+
+    def request(method, url, **kwargs):
+        calls.append(url)
+        raise exc
+
+    monkeypatch.setattr(acd.requests, "request", request)
+    monkeypatch.setattr(acd.time, "sleep", lambda seconds: None)
+    return calls
+
+
+def test_a_billed_request_is_not_sent_again_once_it_may_have_arrived(monkeypatch):
+    """A read timeout can come after the server accepted - and charged for - the image."""
+    calls = _failing(monkeypatch, acd.requests.ReadTimeout("read timed out"))
+    with pytest.raises(RuntimeError, match="billed twice"):
+        acd.post("https://example.invalid/images", idempotent=False)
+    assert len(calls) == 1
+
+
+def test_a_connection_dropped_mid_response_is_not_resent_either(monkeypatch):
+    """The "SSL EOF" this network path produces arrives after the request was written."""
+    calls = _failing(monkeypatch, acd.requests.ConnectionError("Connection aborted."))
+    with pytest.raises(RuntimeError, match="billed twice"):
+        acd.post("https://example.invalid/images", idempotent=False)
+    assert len(calls) == 1
+
+
+def test_a_billed_request_that_never_left_is_still_retried(monkeypatch):
+    """A connect timeout fails before a byte is sent, so sending again is free."""
+    calls = _failing(monkeypatch, acd.requests.ConnectTimeout("connect timed out"))
+    with pytest.raises(RuntimeError, match="after 3 attempts"):
+        acd.post("https://example.invalid/images", idempotent=False)
+    assert len(calls) == 3
+
+
+def test_a_refused_connection_counts_as_never_sent():
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+    refused = acd.requests.ConnectionError(MaxRetryError(None, "/", NewConnectionError(None, "refused")))
+    assert acd.never_sent(refused)
+    assert not acd.never_sent(acd.requests.ConnectionError("Connection aborted."))
+    assert not acd.never_sent(acd.requests.ReadTimeout("read timed out"))
+
+
+def test_ordinary_requests_keep_their_retries(monkeypatch):
+    """The storyboard and the downloads are safe to repeat, and still are."""
+    calls = _failing(monkeypatch, acd.requests.ReadTimeout("read timed out"))
+    with pytest.raises(RuntimeError, match="after 3 attempts"):
+        acd.get("https://example.invalid/picture.png")
+    assert len(calls) == 3
+
+
+class _ImageConfig(_StubConfig):
+    ark_image_url = "https://example.invalid/images"
+    ark_api_key = "test-key"
+    ark_image_model = "test-model"
+    ark_image_size = "2560x1440"
+    ark_image_response_format = "url"
+    ark_image_output_format = "png"
+
+
+def test_the_image_request_is_sent_as_billed(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_post(url, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(acd, "post", fake_post)
+    with pytest.raises(RuntimeError, match="stop here"):
+        acd.generate_image(_ImageConfig(), "a prompt", tmp_path / "01_frame.png")
+    assert seen["idempotent"] is False
