@@ -384,3 +384,35 @@ def test_a_failed_anchor_stops_before_the_frames_matched_to_it(studio, monkeypat
 def test_without_the_setting_no_reference_is_sent(studio):
     assert studio.run("--draft-name", "story", "--text", COPY) == 0
     assert [reference for _, reference in studio.references] == [None] * len(FIRST_SPLIT)
+
+
+# ------------------------------------------------ plan, edit, then resume --
+
+def test_a_storyboard_can_be_planned_without_jianying_a_voice_or_the_cue(studio, monkeypatch):
+    for name in ("JIAN_YING_DRAFT_DIR", "ARK_TTS_VOICE_TYPE"):
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("OPENING_SOUND_PATH", str(studio.root / "missing.mp3"))
+    monkeypatch.setattr(acd, "jianying_app_roots", list)
+    assert studio.run("--draft-name", "plan", "--text", COPY, "--plan-only") == 0
+    assert (studio.root / "output" / "plan" / "manifest.json").is_file()
+    assert studio.tts_calls == [] and studio.image_calls == []
+
+
+def test_planning_never_replaces_a_storyboard_unasked(studio):
+    assert studio.run("--draft-name", "plan", "--text", COPY, "--plan-only") == 0
+    with pytest.raises(RuntimeError, match="already holds a storyboard"):
+        studio.run("--draft-name", "plan", "--text", COPY, "--plan-only")
+    assert studio.run("--draft-name", "plan", "--text", COPY, "--plan-only", "--replace") == 0
+
+
+def test_the_reviewed_storyboard_is_the_one_that_gets_made(studio, monkeypatch):
+    """Plan, edit the manifest, resume: nothing is re-planned under you."""
+    assert studio.run("--draft-name", "plan", "--text", COPY, "--plan-only") == 0
+    manifest = studio.root / "output" / "plan" / "manifest.json"
+    state = json.loads(manifest.read_text(encoding="utf-8"))
+    state["scenes"][0]["text"] = "楼下那家旧书店，我整整路过了三年"
+    manifest.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    monkeypatch.setattr(acd, "plan_scenes", lambda *a: pytest.fail("a resume must not plan again"))
+    assert studio.run("--resume", "plan") == 0
+    assert studio.pairs("plan")[0][0] == "楼下那家旧书店，我整整路过了三年"
