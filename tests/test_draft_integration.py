@@ -215,6 +215,22 @@ def test_every_shot_has_camera_movement(draft):
         assert properties, "a shot with no keyframes would be a frozen still"
 
 
+def test_the_camera_steps_back_where_a_paragraph_ends(draft):
+    """Scene 2 ends a paragraph and scene 5 ends the video: both pull out."""
+    _, _, tracks = draft
+
+    def scale(segment):
+        return [kf["values"][0] for group in segment["common_keyframes"]
+                if group["property_type"] == "KFTypeScaleX" for kf in group["keyframe_list"]]
+
+    shots = _sorted_segments(tracks["visuals"])
+    for index in (1, 4):
+        start, end = scale(shots[index])[0], scale(shots[index])[-1]
+        assert end < start, f"shot {index + 1} should pull out, scale {start} -> {end}"
+    # Scene 3 is the fixture's wide shot: it reveals the place, never closes in.
+    assert scale(shots[2])[-1] <= scale(shots[2])[0]
+
+
 def test_pans_never_start_at_full_frame(draft):
     """A pan at scale 1.0 exposes the edge of the image."""
     _, _, tracks = draft
