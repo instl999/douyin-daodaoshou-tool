@@ -5,14 +5,19 @@ from __future__ import annotations
 import json
 import math
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
 import pytest
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import animated_caption_draft as acd  # noqa: E402
+from daodaoshou import jianying, net, storyboard  # noqa: E402
+from daodaoshou.env import _parse_env_value  # noqa: E402
+from daodaoshou.layout import _from_oklab, _oklab  # noqa: E402
 
 SECOND = 1_000_000
 
@@ -497,14 +502,14 @@ def test_characters_are_parsed_and_bad_entries_dropped():
     ("", ""),
 ])
 def test_env_values_parse_as_expected(raw, expected):
-    assert acd._parse_env_value(raw) == expected
+    assert _parse_env_value(raw) == expected
 
 
 @pytest.mark.parametrize("name", sorted(acd.STYLE_PRESETS))
 def test_style_prompts_survive_parsing(name):
     """Style prompts are long and comma-heavy; they must come back whole."""
     prompt = acd.STYLE_PRESETS[name].prompt
-    assert acd._parse_env_value(prompt) == prompt
+    assert _parse_env_value(prompt) == prompt
 
 
 def test_default_style_preset_exists():
@@ -963,7 +968,7 @@ def test_an_explicit_setting_still_wins_and_is_still_checked(tmp_path, monkeypat
 
 def test_no_editor_installed_says_which_setting_to_fill(monkeypatch):
     monkeypatch.setenv("JIAN_YING_DRAFT_DIR", "")
-    monkeypatch.setattr(acd, "jianying_app_roots", list)
+    monkeypatch.setattr(jianying, "jianying_app_roots", list)
     with pytest.raises(RuntimeError, match="JIAN_YING_DRAFT_DIR"):
         acd.resolve_draft_dir()
 
@@ -1355,7 +1360,7 @@ def test_the_storyboard_turns_thinking_off(monkeypatch, tmp_path):
         seen.update(body)
         return '{"scenes": [{"text": "一句", "image_prompt": "x"}]}'
 
-    monkeypatch.setattr(acd, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(storyboard, "stream_chat", fake_stream_chat)
     acd.request_storyboard(cfg, "brief", "copy", 1)
     assert seen["thinking"] == {"type": "disabled"}
     assert acd.DEFAULT_DEEPSEEK_MODEL == "deepseek-chat"
@@ -1377,7 +1382,7 @@ class _Stream:
     def iter_lines(self, decode_unicode=False):
         for index, line in enumerate(self._lines):
             if self._cut_after is not None and index == self._cut_after:
-                raise acd.requests.exceptions.ChunkedEncodingError("cut")
+                raise requests.exceptions.ChunkedEncodingError("cut")
             yield line
 
     def close(self):
@@ -1392,7 +1397,7 @@ def test_stream_chat_returns_only_the_answer(monkeypatch):
     """Reasoning is read and discarded; the storyboard is `content` alone."""
     lines = [_sse(reasoning_content="thinking about scenes..."),
              _sse(content='{"scenes"'), _sse(content=': []}'), "data: [DONE]"]
-    monkeypatch.setattr(acd, "post", lambda *a, **k: _Stream(lines))
+    monkeypatch.setattr(net, "post", lambda *a, **k: _Stream(lines))
     assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == '{"scenes": []}'
 
 
@@ -1405,7 +1410,7 @@ def test_stream_chat_asks_for_a_stream_and_decodes_utf8(monkeypatch):
         seen.update(kwargs)
         return stream
 
-    monkeypatch.setattr(acd, "post", fake_post)
+    monkeypatch.setattr(net, "post", fake_post)
     assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == "很多人以为"
     assert seen["json"]["stream"] is True and seen["stream"] is True
     assert stream.encoding == "utf-8"
@@ -1414,7 +1419,7 @@ def test_stream_chat_asks_for_a_stream_and_decodes_utf8(monkeypatch):
 def test_a_model_that_only_reasons_is_named_rather_than_blamed_on_json(monkeypatch):
     """The failure that looked like a network fault, reported as what it is."""
     lines = [_sse(reasoning_content="x" * 500), "data: [DONE]"]
-    monkeypatch.setattr(acd, "post", lambda *a, **k: _Stream(lines))
+    monkeypatch.setattr(net, "post", lambda *a, **k: _Stream(lines))
     with pytest.raises(RuntimeError, match="returned no answer") as caught:
         acd.stream_chat("u", "k", {"model": "deepseek-v4-flash"}, "Test")
     assert "deepseek-v4-flash" in str(caught.value)
@@ -1427,8 +1432,8 @@ def test_a_stream_cut_midway_is_started_again(monkeypatch):
         _Stream([_sse(content="{partial"), _sse(content="more")], cut_after=1),
         _Stream([_sse(content='{"ok": true}'), "data: [DONE]"]),
     ])
-    monkeypatch.setattr(acd, "post", lambda *a, **k: next(attempts))
-    monkeypatch.setattr(acd.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(net, "post", lambda *a, **k: next(attempts))
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == '{"ok": true}'
 
 
@@ -1440,7 +1445,7 @@ def test_the_storyboard_goes_to_the_director_endpoint(monkeypatch, tmp_path):
         seen.update(url=url, key=api_key, model=body["model"])
         return '{"scenes": [{"text": "一句", "image_prompt": "x"}]}'
 
-    monkeypatch.setattr(acd, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(storyboard, "stream_chat", fake_stream_chat)
     data = acd.request_storyboard(cfg, "brief", "copy", 1)
     assert seen == {"url": "https://api.deepseek.com/chat/completions",
                     "key": "sk-test", "model": "deepseek-chat"}
@@ -1460,14 +1465,14 @@ def _failing(monkeypatch, exc):
         calls.append(url)
         raise exc
 
-    monkeypatch.setattr(acd.requests, "request", request)
-    monkeypatch.setattr(acd.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(requests, "request", request)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     return calls
 
 
 def test_a_billed_request_is_not_sent_again_once_it_may_have_arrived(monkeypatch):
     """A read timeout can come after the server accepted - and charged for - the image."""
-    calls = _failing(monkeypatch, acd.requests.ReadTimeout("read timed out"))
+    calls = _failing(monkeypatch, requests.ReadTimeout("read timed out"))
     with pytest.raises(RuntimeError, match="billed twice"):
         acd.post("https://example.invalid/images", idempotent=False)
     assert len(calls) == 1
@@ -1475,7 +1480,7 @@ def test_a_billed_request_is_not_sent_again_once_it_may_have_arrived(monkeypatch
 
 def test_a_connection_dropped_mid_response_is_not_resent_either(monkeypatch):
     """The "SSL EOF" this network path produces arrives after the request was written."""
-    calls = _failing(monkeypatch, acd.requests.ConnectionError("Connection aborted."))
+    calls = _failing(monkeypatch, requests.ConnectionError("Connection aborted."))
     with pytest.raises(RuntimeError, match="billed twice"):
         acd.post("https://example.invalid/images", idempotent=False)
     assert len(calls) == 1
@@ -1483,7 +1488,7 @@ def test_a_connection_dropped_mid_response_is_not_resent_either(monkeypatch):
 
 def test_a_billed_request_that_never_left_is_still_retried(monkeypatch):
     """A connect timeout fails before a byte is sent, so sending again is free."""
-    calls = _failing(monkeypatch, acd.requests.ConnectTimeout("connect timed out"))
+    calls = _failing(monkeypatch, requests.ConnectTimeout("connect timed out"))
     with pytest.raises(RuntimeError, match="after 3 attempts"):
         acd.post("https://example.invalid/images", idempotent=False)
     assert len(calls) == 3
@@ -1492,15 +1497,15 @@ def test_a_billed_request_that_never_left_is_still_retried(monkeypatch):
 def test_a_refused_connection_counts_as_never_sent():
     from urllib3.exceptions import MaxRetryError, NewConnectionError
 
-    refused = acd.requests.ConnectionError(MaxRetryError(None, "/", NewConnectionError(None, "refused")))
+    refused = requests.ConnectionError(MaxRetryError(None, "/", NewConnectionError(None, "refused")))
     assert acd.never_sent(refused)
-    assert not acd.never_sent(acd.requests.ConnectionError("Connection aborted."))
-    assert not acd.never_sent(acd.requests.ReadTimeout("read timed out"))
+    assert not acd.never_sent(requests.ConnectionError("Connection aborted."))
+    assert not acd.never_sent(requests.ReadTimeout("read timed out"))
 
 
 def test_ordinary_requests_keep_their_retries(monkeypatch):
     """The storyboard and the downloads are safe to repeat, and still are."""
-    calls = _failing(monkeypatch, acd.requests.ReadTimeout("read timed out"))
+    calls = _failing(monkeypatch, requests.ReadTimeout("read timed out"))
     with pytest.raises(RuntimeError, match="after 3 attempts"):
         acd.get("https://example.invalid/picture.png")
     assert len(calls) == 3
@@ -1522,7 +1527,7 @@ def test_the_image_request_is_sent_as_billed(monkeypatch, tmp_path):
         seen.update(kwargs)
         raise RuntimeError("stop here")
 
-    monkeypatch.setattr(acd, "post", fake_post)
+    monkeypatch.setattr(net, "post", fake_post)
     with pytest.raises(RuntimeError, match="stop here"):
         acd.generate_image(_ImageConfig(), "a prompt", tmp_path / "01_frame.png")
     assert seen["idempotent"] is False
@@ -1570,7 +1575,7 @@ def test_the_scene_a_part_was_cut_after_takes_its_breath(monkeypatch, tmp_path):
         return {"scenes": [{"text": line, "image_prompt": "x", "pause_after": False}
                            for line in batch.split("\n") if line]}
 
-    monkeypatch.setattr(acd, "request_storyboard", director)
+    monkeypatch.setattr(storyboard, "request_storyboard", director)
     # A first paragraph just under the 360-character part, and second-paragraph
     # sentences too long to fit beside it: the cut falls on the blank line.
     sentences: list[str] = []
@@ -1648,7 +1653,7 @@ CRIMSON = acd.TITLE_PRESETS["crimson"]
 def test_a_blend_lands_exactly_on_both_ends():
     assert acd.blend(CRIMSON.primary, CRIMSON.accent, 0.0) == CRIMSON.primary
     assert acd.blend(CRIMSON.primary, CRIMSON.accent, 1.0) == CRIMSON.accent
-    assert acd._from_oklab(acd._oklab(CRIMSON.accent)) == pytest.approx(CRIMSON.accent, abs=1e-6)
+    assert _from_oklab(_oklab(CRIMSON.accent)) == pytest.approx(CRIMSON.accent, abs=1e-6)
 
 
 def test_the_ramp_runs_through_the_block_in_reading_order():
@@ -1657,7 +1662,7 @@ def test_the_ramp_runs_through_the_block_in_reading_order():
     flat = [fill for row in fills for fill in row]
     assert flat[0] == pytest.approx(CRIMSON.primary, abs=1e-4)
     assert flat[-1] == pytest.approx(CRIMSON.accent, abs=1e-4)
-    lightness = [acd._oklab(fill)[0] for fill in flat]
+    lightness = [_oklab(fill)[0] for fill in flat]
     assert lightness == sorted(lightness, reverse=True), "warm white darkens steadily into crimson"
 
 
@@ -1697,12 +1702,12 @@ def test_each_title_line_keeps_the_colour_it_reads_as():
     line pink; each line now stays nearer its own end of the ramp.
     """
     top, bottom = acd.title_fills(["男人不能为女人", "做的3件事"], CRIMSON, ramp=True)
-    near = acd._oklab(CRIMSON.primary)[0], acd._oklab(CRIMSON.accent)[0]
+    near = _oklab(CRIMSON.primary)[0], _oklab(CRIMSON.accent)[0]
     for fill in top:
-        lightness = acd._oklab(fill)[0]
+        lightness = _oklab(fill)[0]
         assert abs(lightness - near[0]) < abs(lightness - near[1]), f"{fill} in the first line reads as the accent"
     for fill in bottom:
-        lightness = acd._oklab(fill)[0]
+        lightness = _oklab(fill)[0]
         assert abs(lightness - near[1]) < abs(lightness - near[0]), f"{fill} in the last line reads as the primary"
 
 
@@ -1750,7 +1755,7 @@ def test_a_reference_travels_in_the_image_field(monkeypatch, tmp_path):
 
     sent = []
     png = base64.b64encode(b"not really a png").decode()
-    monkeypatch.setattr(acd, "post", lambda url, **kwargs: sent.append(kwargs["json"]) or
+    monkeypatch.setattr(net, "post", lambda url, **kwargs: sent.append(kwargs["json"]) or
                         _Answer(200, {"data": [{"b64_json": png}]}))
     acd.generate_image(_ImageConfig(), "p", tmp_path / "01_a.png")
     acd.generate_image(_ImageConfig(), "p", tmp_path / "02_b.png", reference="data:image/jpeg;base64,AAAA")
@@ -1759,7 +1764,7 @@ def test_a_reference_travels_in_the_image_field(monkeypatch, tmp_path):
 
 
 def test_an_endpoint_that_refuses_references_names_the_setting(monkeypatch, tmp_path):
-    monkeypatch.setattr(acd, "post", lambda url, **kwargs: _Answer(400, {"error": "image not supported"}))
+    monkeypatch.setattr(net, "post", lambda url, **kwargs: _Answer(400, {"error": "image not supported"}))
     with pytest.raises(RuntimeError, match="IMAGE_REFERENCE=off"):
         acd.generate_image(_ImageConfig(), "p", tmp_path / "01_a.png", reference="data:image/jpeg;base64,AAAA")
 
@@ -1784,7 +1789,7 @@ def _bare_env(monkeypatch, tmp_path, **values):
     for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR", "DEEPSEEK_API_KEY",
                  "OPENING_SOUND_PATH", "NARRATION_SUBTITLE_SIZE", "IMAGE_STYLES_FILE", "IMAGE_STYLE_PRESET"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(acd, "jianying_app_roots", list)
+    monkeypatch.setattr(jianying, "jianying_app_roots", list)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
 

@@ -21,6 +21,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import animated_caption_draft as acd  # noqa: E402
+from daodaoshou import env, images, jianying, storyboard, tts  # noqa: E402
 
 pytest.importorskip("PIL", reason="Pillow is required to synthesise test images")
 pytest.importorskip("pymediainfo", reason="pyJianYingDraft needs pymediainfo to probe media")
@@ -125,7 +126,7 @@ def studio(tmp_path, monkeypatch):
         "OPENING_SOUND_PATH": str(root / "assets" / "cue.wav"),
     }.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.setattr(acd, "ROOT", root)
+    monkeypatch.setattr(env, "ROOT", root)
 
     def plan(cfg, copy):
         scenes = [acd.Scene(text=line, image_prompt=f"a quiet bookshop, moment {index}",
@@ -147,9 +148,9 @@ def studio(tmp_path, monkeypatch):
         made.drawn[target.name] = prompt
         acd.write_atomically(target, _png())
 
-    monkeypatch.setattr(acd, "plan_scenes", plan)
-    monkeypatch.setattr(acd, "synthesize_tts", speak)
-    monkeypatch.setattr(acd, "generate_image", draw)
+    monkeypatch.setattr(storyboard, "plan_scenes", plan)
+    monkeypatch.setattr(tts, "synthesize_tts", speak)
+    monkeypatch.setattr(images, "generate_image", draw)
     return made
 
 
@@ -392,7 +393,7 @@ def test_a_storyboard_can_be_planned_without_jianying_a_voice_or_the_cue(studio,
     for name in ("JIAN_YING_DRAFT_DIR", "ARK_TTS_VOICE_TYPE"):
         monkeypatch.delenv(name)
     monkeypatch.setenv("OPENING_SOUND_PATH", str(studio.root / "missing.mp3"))
-    monkeypatch.setattr(acd, "jianying_app_roots", list)
+    monkeypatch.setattr(jianying, "jianying_app_roots", list)
     assert studio.run("--draft-name", "plan", "--text", COPY, "--plan-only") == 0
     assert (studio.root / "output" / "plan" / "manifest.json").is_file()
     assert studio.tts_calls == [] and studio.image_calls == []
@@ -413,7 +414,7 @@ def test_the_reviewed_storyboard_is_the_one_that_gets_made(studio, monkeypatch):
     state["scenes"][0]["text"] = "楼下那家旧书店，我整整路过了三年"
     manifest.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
-    monkeypatch.setattr(acd, "plan_scenes", lambda *a: pytest.fail("a resume must not plan again"))
+    monkeypatch.setattr(storyboard, "plan_scenes", lambda *a: pytest.fail("a resume must not plan again"))
     assert studio.run("--resume", "plan") == 0
     assert studio.pairs("plan")[0][0] == "楼下那家旧书店，我整整路过了三年"
 

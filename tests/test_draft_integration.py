@@ -19,6 +19,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import animated_caption_draft as acd  # noqa: E402
+from daodaoshou.layout import _oklab  # noqa: E402
 
 pytest.importorskip("PIL", reason="Pillow is required to synthesise test images")
 pytest.importorskip("pymediainfo", reason="pyJianYingDraft needs pymediainfo to probe media")
@@ -321,7 +322,7 @@ def test_the_title_ramps_from_the_first_colour_to_the_second(draft):
         assert ranges[0][0] == 0 and ranges[-1][1] == len(line["text"])
         assert all(a[1] == b[0] for a, b in zip(ranges, ranges[1:], strict=False))
     # And it only ever moves one way, from the primary towards the accent.
-    lightness = [acd._oklab(tuple(fill))[0] for fill in fills]
+    lightness = [_oklab(tuple(fill))[0] for fill in fills]
     assert all(a >= b - 1e-6 for a, b in zip(lightness, lightness[1:], strict=False))
 
 
