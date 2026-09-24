@@ -1526,3 +1526,62 @@ def test_the_image_request_is_sent_as_billed(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="stop here"):
         acd.generate_image(_ImageConfig(), "a prompt", tmp_path / "01_frame.png")
     assert seen["idempotent"] is False
+
+
+# ------------------------------------------------------ paragraphs, kept ----
+# A paragraph's end is where the video breathes. Every run of newlines used to
+# collapse into one before the director saw the copy, so copy.txt's five
+# paragraphs arrived as a single block and pause_after was a guess.
+
+SHIPPED_COPY = (Path(__file__).resolve().parents[1] / "copy.txt").read_text(encoding="utf-8")
+
+
+def test_the_writers_paragraphs_reach_the_director():
+    blank_lines = SHIPPED_COPY.count("\n\n")
+    assert blank_lines == 4
+    assert sum(part.count("\n\n") for part in acd.storyboard_batches(SHIPPED_COPY)) == blank_lines
+
+
+def test_sentences_inside_a_paragraph_stay_one_line_apart():
+    part = acd.storyboard_batches("第一句。第二句。\n\n第三句。")[0]
+    assert part == "第一句。\n第二句。\n\n第三句。"
+
+
+def test_a_part_cut_at_a_paragraph_end_says_so():
+    """The director cannot see the blank line its part of the copy ended on."""
+    first, second = "甲" * 150 + "。", "乙" * 150 + "。"
+    at_the_break = acd.paragraph_batches(f"{first}\n\n{second}", batch_size=200)
+    assert [ends for _, ends in at_the_break] == [True, True]
+    inside = acd.paragraph_batches(f"{first}{second}", batch_size=200)
+    assert [ends for _, ends in inside] == [False, True]
+
+
+def test_the_director_is_told_what_a_blank_line_means(monkeypatch, tmp_path):
+    cfg = _director_env(monkeypatch, tmp_path)
+    assert "A blank line in the copy marks where a paragraph ends" in acd.storyboard_prompt(cfg, 1, 1, 6, 10, [])
+
+
+def test_the_scene_a_part_was_cut_after_takes_its_breath(monkeypatch, tmp_path):
+    cfg = _director_env(monkeypatch, tmp_path)
+    parts = []
+
+    def director(cfg, prompt, batch, target):
+        parts.append(batch)
+        return {"scenes": [{"text": line, "image_prompt": "x", "pause_after": False}
+                           for line in batch.split("\n") if line]}
+
+    monkeypatch.setattr(acd, "request_storyboard", director)
+    # A first paragraph just under the 360-character part, and second-paragraph
+    # sentences too long to fit beside it: the cut falls on the blank line.
+    sentences: list[str] = []
+    while len("".join(sentences)) < 330:
+        sentences.append(f"第一段第{len(sentences) + 1}句写得足够长才会把这一段撑到切分线上。")
+    first = "".join(sentences)
+    second = "".join(f"第二段第{index}句" + "长" * 30 + "。" for index in range(1, 4))
+    assert len(first) <= 360 < len(first) + 36
+    scenes, _, _ = acd.plan_scenes(cfg, f"{first}\n\n{second}")
+
+    assert len(parts) == 2, "the copy was meant to be cut at its paragraph break"
+    end_of_first = len([line for line in parts[0].split("\n") if line])
+    assert scenes[end_of_first - 1].pause_after, "the last scene of the first paragraph must breathe"
+    assert not any(scene.pause_after for scene in scenes[:end_of_first - 1])

@@ -1993,20 +1993,41 @@ def scene_limits(mode: str, characters_per_scene: int, copy: str) -> tuple[int, 
     return target, maximum
 
 
-def storyboard_batches(copy: str, batch_size: int = 360) -> list[str]:
-    units = [unit.strip() for unit in re.split(r"(?<=[。！？；!?])|\n+", copy) if unit.strip()]
-    batches: list[str] = []
+# A blank line is how copy marks a paragraph, and a paragraph's end is where
+# the video takes its breath (pause_after). The splitter used to collapse every
+# run of newlines into one, so the director never saw a paragraph: copy.txt's
+# five reached it as a single block, and the breaths were a guess about a
+# structure the writer had already stated.
+PARAGRAPH_BREAK = re.compile(r"\n[^\S\n]*\n")
+
+
+def paragraph_batches(copy: str, batch_size: int = 360) -> list[tuple[str, bool]]:
+    """Split the copy for the director: (part, whether it ends at a paragraph end).
+
+    Sentences within a paragraph are joined by one newline and paragraphs by a
+    blank line, so the director sees the structure. The flag is for the one
+    paragraph end it cannot see - the one its part of the copy was cut at.
+    """
+    units: list[tuple[str, bool]] = []          # (sentence, whether it opens a paragraph)
+    for paragraph in PARAGRAPH_BREAK.split(copy):
+        sentences = [unit.strip() for unit in re.split(r"(?<=[。！？；!?])|\n+", paragraph) if unit.strip()]
+        units += [(sentence, position == 0) for position, sentence in enumerate(sentences)]
+    batches: list[tuple[str, bool]] = []
     current = ""
-    for unit in units:
-        candidate = f"{current}\n{unit}" if current else unit
+    for unit, opens_paragraph in units:
+        candidate = f"{current}{chr(10) * (2 if opens_paragraph else 1)}{unit}" if current else unit
         if current and len(re.sub(r"\s+", "", candidate)) > batch_size:
-            batches.append(current)
+            batches.append((current, opens_paragraph))
             current = unit
         else:
             current = candidate
     if current:
-        batches.append(current)
-    return batches or [copy]
+        batches.append((current, True))
+    return batches or [(copy, True)]
+
+
+def storyboard_batches(copy: str, batch_size: int = 360) -> list[str]:
+    return [part for part, _ in paragraph_batches(copy, batch_size)]
 
 
 # What a frame is allowed to be about, and how it should read to somebody
@@ -2118,8 +2139,9 @@ def storyboard_prompt(cfg: Config, batch_number: int, batch_count: int,
         + "; ".join(f'{name} allows at most {size.elements} besides the subject'
                     for name, size in SHOT_SIZES.items())
         + ". "
-        "Set \"pause_after\" to true on the scene that ends a paragraph or a complete thought, so the video can "
-        "take a breath there; leave it false inside a paragraph. "
+        "Set \"pause_after\" to true on the scene that ends a paragraph, so the video can take a breath there, "
+        "and leave it false inside one. A blank line in the copy marks where a paragraph ends; where the copy "
+        "has none, judge where each complete thought ends. "
         # The music bed is chosen from this, and it costs nothing: one more
         # field on a call that is already being made for every batch. Asking
         # separately would be a second request per video for one word.
@@ -2205,7 +2227,7 @@ def characters_from_payload(data: dict[str, Any]) -> list[Character]:
 
 def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character], list[str]]:
     target, maximum = scene_limits(cfg.scene_length_mode, cfg.scene_characters, copy)
-    batches = storyboard_batches(copy)
+    batches = paragraph_batches(copy)
     total_characters = max(1, len(re.sub(r"\s+", "", copy)))
     scenes: list[Scene] = []
     characters: list[Character] = []
@@ -2216,7 +2238,7 @@ def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character], l
     mood_counts: dict[str, int] = {}
     report_progress("Storyboard", 0, len(batches))
 
-    for batch_number, batch in enumerate(batches, 1):
+    for batch_number, (batch, ends_paragraph) in enumerate(batches, 1):
         batch_characters = len(re.sub(r"\s+", "", batch))
         batch_target = max(1, round(target * batch_characters / total_characters))
         batch_maximum = min(30, max(6, batch_target + 4))
@@ -2233,6 +2255,10 @@ def plan_scenes(cfg: Config, copy: str) -> tuple[list[Scene], list[Character], l
             raise RuntimeError(
                 f"Storyboard batch {batch_number} returned {len(batch_scenes)} scenes; the safety limit is {batch_maximum}."
             )
+        if ends_paragraph:
+            # The director sees the blank lines inside its part of the copy,
+            # but not the one its part was cut at.
+            batch_scenes[-1].pause_after = True
         for rank, mood in enumerate(moods_from_payload(data)):
             # First-named counts for more, so a batch that is mostly tense and
             # a little sad does not average into neither.
