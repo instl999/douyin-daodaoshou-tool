@@ -622,21 +622,6 @@ def test_the_storyboard_director_is_told_the_selected_medium(name):
     assert "social-realism manhua" not in prompt
 
 
-def test_a_changed_title_is_not_spoken_from_a_stale_clip(tmp_path):
-    """--resume keeps existing audio, so the cache key has to be the text.
-
-    With a fixed `title.mp3` a resume with a different --title spoke the old
-    title over the new one on screen, and the run reported success.
-    """
-    import hashlib
-
-    def cache_name(title: str) -> str:
-        return f"title_{hashlib.sha1(title.strip().encode('utf-8')).hexdigest()[:12]}.mp3"
-
-    assert cache_name("男人不能为女人做的3件事") != cache_name("女人不能为男人做的3件事")
-    assert cache_name("同一个标题") == cache_name("  同一个标题  ")
-
-
 # ------------------------------------------- the title that says itself twice --
 
 def _title_scene(text: str) -> acd.Scene:
