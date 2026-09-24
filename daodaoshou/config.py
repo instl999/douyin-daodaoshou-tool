@@ -660,11 +660,14 @@ def describe_configuration(cfg: Config) -> None:
              if cfg.ending_hold_us
              else "ending on the last subtitle"))
     print(f"Colour grade: {cfg.color_grade or 'none'} at {cfg.color_grade_intensity:.0f}%")
+    print("Image cap:  " + (f"at most {cfg.max_images} drawn per run (MAX_IMAGES)" if cfg.max_images is not None
+                            else "none (MAX_IMAGES unset)"))
     for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR", "VIDEO_SPEED",
                  "BGM_PATH", "BGM_LIBRARY", "ENDING_HOLD_SECONDS", "SPEAK_TITLE",
                  "NARRATION_SUBTITLE_Y", "NARRATION_SUBTITLE_SIZE", "SUBTITLE_FONT",
-                 "TITLE_STYLE", "TITLE_FONT", "TITLE_SIZE", "COLOR_GRADE",
-                 "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT", STYLES_FILE_SETTING):
+                 "TITLE_STYLE", "TITLE_COLOR_MODE", "TITLE_FONT", "TITLE_SIZE", "COLOR_GRADE",
+                 "IMAGE_STYLE_PRESET", "IMAGE_STYLE_PROMPT", STYLES_FILE_SETTING,
+                 "IMAGE_REFERENCE", "MAX_IMAGES"):
         print(f"  {name}: {env_source(name)}")
 
 

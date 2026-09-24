@@ -392,8 +392,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"drawn; --resume draws it again. {image_failures[0]['error']}"
                 )
             append_run_log(asset_root, "reference_anchor", scene=anchor)
-            draw([(index, scene) for index, scene in pending_images if index != anchor],
-                 reference_image(Path(scenes[anchor - 1].image_path or "")))
+            matched = [(index, scene) for index, scene in pending_images if index != anchor]
+            if matched:
+                draw(matched, reference_image(Path(scenes[anchor - 1].image_path or "")))
         else:
             draw(pending_images, None)
 
