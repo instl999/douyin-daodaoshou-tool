@@ -4,8 +4,9 @@ Recreates the video format of the Douyin blogger "Xinli Daodaoshou" ([creator pa
 
 > **Ships with Volcengine Ark Agent Plan API support** — storyboard, image
 > generation and voice-over share one `ARK_API_KEY`, all routed through the
-> Agent Plan. Under an Agent Plan subscription, **image generation costs
-> nothing extra**.
+> Agent Plan API. **Image generation is still billed on Agent Plan**, although
+> it is usually cheaper than standard pay-as-you-go calls. Check the current
+> price and your actual bill in the Volcengine Ark console.
 
 It produces a **draft, not a finished video** — every asset and keyframe sits on the timeline, so you can adjust anything by hand and export it yourself.
 
@@ -37,6 +38,47 @@ python animated_caption_draft.py --draft-name my_story --title "Example title" -
 ```
 
 Open Jianying and `my_story` is waiting in the draft list.
+
+---
+
+## Recommended: run it directly from Codex or Claude Code
+
+This repository is designed to be driven directly by a coding agent. Open the
+repository in Codex or Claude Code and describe the copy, title, style and draft
+name in plain language; no extra wrapper or workflow is required. Ask the agent
+to read this README first, report the expected shot count before any billed API
+work, and use `--resume` after a failure so completed assets are not generated
+and billed again.
+
+Copy-paste examples:
+
+**Set up and run only the free checks**
+
+```text
+Read README.en.md and .env.example, install the dependencies, and run --check-config. Do not call any paid API. List the missing keys, voice setting, or local assets so I can fill them in myself.
+```
+
+**Review the storyboard before generating images**
+
+```text
+Read copy.txt and prepare a midnight-style storyboard for “Why being busy makes us anxious”. Run --plan-only, review the subject, framing, and character consistency of every shot, and tell me how many images the full run would generate. Do not generate media yet.
+```
+
+**Build an editable Jianying draft**
+
+```text
+Use copy.txt with the title “Busy Is Not What Breaks You” and create a Jianying draft named anxiety_story. Check the configuration and report the expected shot count first. When it finishes, inspect the output and log. If a stage fails, resume it instead of paying to regenerate completed assets.
+```
+
+**Change the look or repair a shot**
+
+```text
+Inspect the existing output/anxiety_story run. Switch it to the noir preset, or repair only the shots with unsuitable artwork. Reuse narration and successful assets wherever possible, and tell me which actions will trigger new image-generation charges.
+```
+
+> Cost note: `--check-config` makes no API calls; `--plan-only` still calls the
+> text model; a full run uses text, TTS and image APIs. Agent Plan is not a free
+> image allowance, so check current pricing and balance in the Ark console.
 
 ---
 
@@ -88,7 +130,7 @@ This is what separates it from a batch image slideshow.
 - Windows 10/11
 - Python 3.10+
 - Jianying Pro
-- A Volcengine Ark Agent Plan API key (shared by the storyboard, image and speech models; under an Agent Plan subscription, image generation costs nothing extra)
+- A Volcengine Ark Agent Plan API key (shared by the storyboard, image and speech models; image generation is billed, usually at a lower cost, with actual charges shown in the Ark console)
 
 ## Local assets
 
