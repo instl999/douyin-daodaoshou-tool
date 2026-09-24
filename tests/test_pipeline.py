@@ -5,14 +5,19 @@ from __future__ import annotations
 import json
 import math
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
 import pytest
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import animated_caption_draft as acd  # noqa: E402
+from daodaoshou import jianying, net, storyboard  # noqa: E402
+from daodaoshou.env import _parse_env_value  # noqa: E402
+from daodaoshou.layout import _from_oklab, _oklab  # noqa: E402
 
 SECOND = 1_000_000
 
@@ -497,14 +502,14 @@ def test_characters_are_parsed_and_bad_entries_dropped():
     ("", ""),
 ])
 def test_env_values_parse_as_expected(raw, expected):
-    assert acd._parse_env_value(raw) == expected
+    assert _parse_env_value(raw) == expected
 
 
 @pytest.mark.parametrize("name", sorted(acd.STYLE_PRESETS))
 def test_style_prompts_survive_parsing(name):
     """Style prompts are long and comma-heavy; they must come back whole."""
     prompt = acd.STYLE_PRESETS[name].prompt
-    assert acd._parse_env_value(prompt) == prompt
+    assert _parse_env_value(prompt) == prompt
 
 
 def test_default_style_preset_exists():
@@ -620,21 +625,6 @@ def test_the_storyboard_director_is_told_the_selected_medium(name):
     assert preset.medium in prompt
     assert preset.avoid in prompt
     assert "social-realism manhua" not in prompt
-
-
-def test_a_changed_title_is_not_spoken_from_a_stale_clip(tmp_path):
-    """--resume keeps existing audio, so the cache key has to be the text.
-
-    With a fixed `title.mp3` a resume with a different --title spoke the old
-    title over the new one on screen, and the run reported success.
-    """
-    import hashlib
-
-    def cache_name(title: str) -> str:
-        return f"title_{hashlib.sha1(title.strip().encode('utf-8')).hexdigest()[:12]}.mp3"
-
-    assert cache_name("男人不能为女人做的3件事") != cache_name("女人不能为男人做的3件事")
-    assert cache_name("同一个标题") == cache_name("  同一个标题  ")
 
 
 # ------------------------------------------- the title that says itself twice --
@@ -978,7 +968,7 @@ def test_an_explicit_setting_still_wins_and_is_still_checked(tmp_path, monkeypat
 
 def test_no_editor_installed_says_which_setting_to_fill(monkeypatch):
     monkeypatch.setenv("JIAN_YING_DRAFT_DIR", "")
-    monkeypatch.setattr(acd, "jianying_app_roots", list)
+    monkeypatch.setattr(jianying, "jianying_app_roots", list)
     with pytest.raises(RuntimeError, match="JIAN_YING_DRAFT_DIR"):
         acd.resolve_draft_dir()
 
@@ -1370,7 +1360,7 @@ def test_the_storyboard_turns_thinking_off(monkeypatch, tmp_path):
         seen.update(body)
         return '{"scenes": [{"text": "一句", "image_prompt": "x"}]}'
 
-    monkeypatch.setattr(acd, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(storyboard, "stream_chat", fake_stream_chat)
     acd.request_storyboard(cfg, "brief", "copy", 1)
     assert seen["thinking"] == {"type": "disabled"}
     assert acd.DEFAULT_DEEPSEEK_MODEL == "deepseek-chat"
@@ -1392,7 +1382,7 @@ class _Stream:
     def iter_lines(self, decode_unicode=False):
         for index, line in enumerate(self._lines):
             if self._cut_after is not None and index == self._cut_after:
-                raise acd.requests.exceptions.ChunkedEncodingError("cut")
+                raise requests.exceptions.ChunkedEncodingError("cut")
             yield line
 
     def close(self):
@@ -1407,7 +1397,7 @@ def test_stream_chat_returns_only_the_answer(monkeypatch):
     """Reasoning is read and discarded; the storyboard is `content` alone."""
     lines = [_sse(reasoning_content="thinking about scenes..."),
              _sse(content='{"scenes"'), _sse(content=': []}'), "data: [DONE]"]
-    monkeypatch.setattr(acd, "post", lambda *a, **k: _Stream(lines))
+    monkeypatch.setattr(net, "post", lambda *a, **k: _Stream(lines))
     assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == '{"scenes": []}'
 
 
@@ -1420,7 +1410,7 @@ def test_stream_chat_asks_for_a_stream_and_decodes_utf8(monkeypatch):
         seen.update(kwargs)
         return stream
 
-    monkeypatch.setattr(acd, "post", fake_post)
+    monkeypatch.setattr(net, "post", fake_post)
     assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == "很多人以为"
     assert seen["json"]["stream"] is True and seen["stream"] is True
     assert stream.encoding == "utf-8"
@@ -1429,7 +1419,7 @@ def test_stream_chat_asks_for_a_stream_and_decodes_utf8(monkeypatch):
 def test_a_model_that_only_reasons_is_named_rather_than_blamed_on_json(monkeypatch):
     """The failure that looked like a network fault, reported as what it is."""
     lines = [_sse(reasoning_content="x" * 500), "data: [DONE]"]
-    monkeypatch.setattr(acd, "post", lambda *a, **k: _Stream(lines))
+    monkeypatch.setattr(net, "post", lambda *a, **k: _Stream(lines))
     with pytest.raises(RuntimeError, match="returned no answer") as caught:
         acd.stream_chat("u", "k", {"model": "deepseek-v4-flash"}, "Test")
     assert "deepseek-v4-flash" in str(caught.value)
@@ -1442,8 +1432,8 @@ def test_a_stream_cut_midway_is_started_again(monkeypatch):
         _Stream([_sse(content="{partial"), _sse(content="more")], cut_after=1),
         _Stream([_sse(content='{"ok": true}'), "data: [DONE]"]),
     ])
-    monkeypatch.setattr(acd, "post", lambda *a, **k: next(attempts))
-    monkeypatch.setattr(acd.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(net, "post", lambda *a, **k: next(attempts))
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     assert acd.stream_chat("u", "k", {"model": "m"}, "Test") == '{"ok": true}'
 
 
@@ -1455,8 +1445,400 @@ def test_the_storyboard_goes_to_the_director_endpoint(monkeypatch, tmp_path):
         seen.update(url=url, key=api_key, model=body["model"])
         return '{"scenes": [{"text": "一句", "image_prompt": "x"}]}'
 
-    monkeypatch.setattr(acd, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(storyboard, "stream_chat", fake_stream_chat)
     data = acd.request_storyboard(cfg, "brief", "copy", 1)
     assert seen == {"url": "https://api.deepseek.com/chat/completions",
                     "key": "sk-test", "model": "deepseek-chat"}
     assert data["scenes"][0]["text"] == "一句"
+
+
+# ---------------------------------------------------- billed requests, retried --
+# A timed-out POST may already have been accepted upstream. Retried, a billed
+# request pays twice for one frame and orphans the first job; the opt-out was
+# written for exactly that and no caller used it.
+
+
+def _failing(monkeypatch, exc):
+    calls = []
+
+    def request(method, url, **kwargs):
+        calls.append(url)
+        raise exc
+
+    monkeypatch.setattr(requests, "request", request)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    return calls
+
+
+def test_a_billed_request_is_not_sent_again_once_it_may_have_arrived(monkeypatch):
+    """A read timeout can come after the server accepted - and charged for - the image."""
+    calls = _failing(monkeypatch, requests.ReadTimeout("read timed out"))
+    with pytest.raises(RuntimeError, match="billed twice"):
+        acd.post("https://example.invalid/images", idempotent=False)
+    assert len(calls) == 1
+
+
+def test_a_connection_dropped_mid_response_is_not_resent_either(monkeypatch):
+    """The "SSL EOF" this network path produces arrives after the request was written."""
+    calls = _failing(monkeypatch, requests.ConnectionError("Connection aborted."))
+    with pytest.raises(RuntimeError, match="billed twice"):
+        acd.post("https://example.invalid/images", idempotent=False)
+    assert len(calls) == 1
+
+
+def test_a_billed_request_that_never_left_is_still_retried(monkeypatch):
+    """A connect timeout fails before a byte is sent, so sending again is free."""
+    calls = _failing(monkeypatch, requests.ConnectTimeout("connect timed out"))
+    with pytest.raises(RuntimeError, match="after 3 attempts"):
+        acd.post("https://example.invalid/images", idempotent=False)
+    assert len(calls) == 3
+
+
+def test_a_refused_connection_counts_as_never_sent():
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+    refused = requests.ConnectionError(MaxRetryError(None, "/", NewConnectionError(None, "refused")))
+    assert acd.never_sent(refused)
+    assert not acd.never_sent(requests.ConnectionError("Connection aborted."))
+    assert not acd.never_sent(requests.ReadTimeout("read timed out"))
+
+
+def test_ordinary_requests_keep_their_retries(monkeypatch):
+    """The storyboard and the downloads are safe to repeat, and still are."""
+    calls = _failing(monkeypatch, requests.ReadTimeout("read timed out"))
+    with pytest.raises(RuntimeError, match="after 3 attempts"):
+        acd.get("https://example.invalid/picture.png")
+    assert len(calls) == 3
+
+
+class _ImageConfig(_StubConfig):
+    ark_image_url = "https://example.invalid/images"
+    ark_api_key = "test-key"
+    ark_image_model = "test-model"
+    ark_image_size = "2560x1440"
+    ark_image_response_format = "url"
+    ark_image_output_format = "png"
+
+
+def test_the_image_request_is_sent_as_billed(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_post(url, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(net, "post", fake_post)
+    with pytest.raises(RuntimeError, match="stop here"):
+        acd.generate_image(_ImageConfig(), "a prompt", tmp_path / "01_frame.png")
+    assert seen["idempotent"] is False
+
+
+# ------------------------------------------------------ paragraphs, kept ----
+# A paragraph's end is where the video breathes. Every run of newlines used to
+# collapse into one before the director saw the copy, so copy.txt's five
+# paragraphs arrived as a single block and pause_after was a guess.
+
+SHIPPED_COPY = (Path(__file__).resolve().parents[1] / "copy.txt").read_text(encoding="utf-8")
+
+
+def test_the_writers_paragraphs_reach_the_director():
+    blank_lines = SHIPPED_COPY.count("\n\n")
+    assert blank_lines == 4
+    assert sum(part.count("\n\n") for part in acd.storyboard_batches(SHIPPED_COPY)) == blank_lines
+
+
+def test_sentences_inside_a_paragraph_stay_one_line_apart():
+    part = acd.storyboard_batches("第一句。第二句。\n\n第三句。")[0]
+    assert part == "第一句。\n第二句。\n\n第三句。"
+
+
+def test_a_part_cut_at_a_paragraph_end_says_so():
+    """The director cannot see the blank line its part of the copy ended on."""
+    first, second = "甲" * 150 + "。", "乙" * 150 + "。"
+    at_the_break = acd.paragraph_batches(f"{first}\n\n{second}", batch_size=200)
+    assert [ends for _, ends in at_the_break] == [True, True]
+    inside = acd.paragraph_batches(f"{first}{second}", batch_size=200)
+    assert [ends for _, ends in inside] == [False, True]
+
+
+def test_the_director_is_told_what_a_blank_line_means(monkeypatch, tmp_path):
+    cfg = _director_env(monkeypatch, tmp_path)
+    assert "A blank line in the copy marks where a paragraph ends" in acd.storyboard_prompt(cfg, 1, 1, 6, 10, [])
+
+
+def test_the_scene_a_part_was_cut_after_takes_its_breath(monkeypatch, tmp_path):
+    cfg = _director_env(monkeypatch, tmp_path)
+    parts = []
+
+    def director(cfg, prompt, batch, target):
+        parts.append(batch)
+        return {"scenes": [{"text": line, "image_prompt": "x", "pause_after": False}
+                           for line in batch.split("\n") if line]}
+
+    monkeypatch.setattr(storyboard, "request_storyboard", director)
+    # A first paragraph just under the 360-character part, and second-paragraph
+    # sentences too long to fit beside it: the cut falls on the blank line.
+    sentences: list[str] = []
+    while len("".join(sentences)) < 330:
+        sentences.append(f"第一段第{len(sentences) + 1}句写得足够长才会把这一段撑到切分线上。")
+    first = "".join(sentences)
+    second = "".join(f"第二段第{index}句" + "长" * 30 + "。" for index in range(1, 4))
+    assert len(first) <= 360 < len(first) + 36
+    scenes, _, _ = acd.plan_scenes(cfg, f"{first}\n\n{second}")
+
+    assert len(parts) == 2, "the copy was meant to be cut at its paragraph break"
+    end_of_first = len([line for line in parts[0].split("\n") if line])
+    assert scenes[end_of_first - 1].pause_after, "the last scene of the first paragraph must breathe"
+    assert not any(scene.pause_after for scene in scenes[:end_of_first - 1])
+
+
+# ------------------------------------------------------ the camera's choice --
+# The move used to be picked by the shot's position in a five-move rotation,
+# so a pull-out could land on the close-up a paragraph builds to.
+
+
+def _shots(*sizes, pauses=()):
+    return [acd.Scene(text="一句", image_prompt="x", shot_size=size, pause_after=index in pauses)
+            for index, size in enumerate(sizes)]
+
+
+def test_a_close_up_is_pushed_into():
+    moves = acd.plan_camera(_shots("close", "medium", "close", "medium", "close", "wide"))
+    for index in (0, 2, 4):
+        assert moves[index][0] == +1, "a close-up moves towards its subject"
+
+
+def test_a_wide_shot_reveals_its_place():
+    moves = acd.plan_camera(_shots("wide", "close", "wide", "close", "wide", "close", "medium"))
+    for index in (0, 2, 4):
+        assert moves[index][0] <= 0, "a wide shot pulls out or pans; it does not close in"
+
+
+def test_the_shot_that_ends_a_paragraph_steps_back():
+    scenes = _shots("close", "close", "medium", "close", "wide", "close", pauses={1, 3})
+    moves = acd.plan_camera(scenes)
+    for index in (1, 3, len(scenes) - 1):
+        assert moves[index][0] == -1, f"shot {index + 1} ends a thought and should pull out"
+
+
+def test_no_two_shots_in_a_row_move_the_same_way():
+    sizes = ("wide", "medium", "close", "close", "close", "medium", "medium", "wide", "wide", "close")
+    for pauses in ((), (3,), (2, 3), (4, 5, 6)):
+        moves = acd.plan_camera(_shots(*sizes, pauses=pauses))
+        assert all(a != b for a, b in zip(moves, moves[1:], strict=False)), (pauses, moves)
+
+
+def test_every_planned_move_is_one_the_edge_checks_cover():
+    """The pan and zoom safety tests iterate KEN_BURNS_MOVES."""
+    planned = set(acd.CAMERA_EXHALE)
+    for moves in acd.CAMERA_BY_SHOT.values():
+        planned |= set(moves)
+    assert planned <= set(acd.KEN_BURNS_MOVES)
+
+
+def test_the_plan_is_the_same_every_time():
+    """A --resume rebuilds the draft; the camera must not change under it."""
+    scenes = _shots("wide", "medium", "close", "medium", pauses={2})
+    assert acd.plan_camera(scenes) == acd.plan_camera(scenes)
+
+
+# ----------------------------------------------------------- the title ramp --
+# The draft format stores a text's style as runs over character ranges;
+# pyJianYingDraft writes one, which is where "Jianying cannot colour inside a
+# text" came from. The title now ramps character by character.
+
+CRIMSON = acd.TITLE_PRESETS["crimson"]
+
+
+def test_a_blend_lands_exactly_on_both_ends():
+    assert acd.blend(CRIMSON.primary, CRIMSON.accent, 0.0) == CRIMSON.primary
+    assert acd.blend(CRIMSON.primary, CRIMSON.accent, 1.0) == CRIMSON.accent
+    assert _from_oklab(_oklab(CRIMSON.accent)) == pytest.approx(CRIMSON.accent, abs=1e-6)
+
+
+def test_the_ramp_runs_through_the_block_in_reading_order():
+    fills = acd.title_fills(["男人不能为女人", "做的3件事"], CRIMSON, ramp=True)
+    assert [len(row) for row in fills] == [7, 5]
+    flat = [fill for row in fills for fill in row]
+    assert flat[0] == pytest.approx(CRIMSON.primary, abs=1e-4)
+    assert flat[-1] == pytest.approx(CRIMSON.accent, abs=1e-4)
+    lightness = [_oklab(fill)[0] for fill in flat]
+    assert lightness == sorted(lightness, reverse=True), "warm white darkens steadily into crimson"
+
+
+def test_without_a_ramp_the_lines_are_two_flat_colours():
+    fills = acd.title_fills(["第一行", "第二行", "第三行"], CRIMSON, ramp=False)
+    assert fills == [[CRIMSON.primary] * 3, [CRIMSON.accent] * 3, [CRIMSON.accent] * 3]
+
+
+def test_equal_neighbours_share_one_run():
+    red, white = (1.0, 0.0, 0.0), (1.0, 1.0, 1.0)
+    assert acd.colour_runs([white, white, red, red, red, white]) == [(0, 2, white), (2, 5, red), (5, 6, white)]
+    single = acd.title_fills(["标题"], acd.TITLE_PRESETS["white"], ramp=True)[0]
+    assert len(acd.colour_runs(single)) == 1, "a one-colour colourway writes exactly what the library would"
+
+
+def test_a_split_run_keeps_everything_but_its_fill():
+    template = {"fill": {"alpha": 1.0, "content": {"render_type": "solid", "solid": {"alpha": 1.0, "color": [0, 0, 0]}}},
+                "range": [0, 3], "size": 19.5, "bold": True, "strokes": [{"width": 0.1}], "font": {"id": "f"}}
+    fills = [(1.0, 1.0, 1.0), (0.5, 0.5, 0.5), (0.0, 0.0, 0.0)]
+    content = acd.split_style_runs({"styles": [template], "text": "三个字"}, fills)
+    assert [style["range"] for style in content["styles"]] == [[0, 1], [1, 2], [2, 3]]
+    assert [style["fill"]["content"]["solid"]["color"] for style in content["styles"]] == [list(f) for f in fills]
+    for style in content["styles"]:
+        assert (style["size"], style["strokes"], style["font"]) == (19.5, [{"width": 0.1}], {"id": "f"})
+    assert template["fill"]["content"]["solid"]["color"] == [0, 0, 0], "the template itself is not mutated"
+
+
+def test_an_unknown_title_colour_mode_is_refused(monkeypatch, tmp_path):
+    with pytest.raises(RuntimeError, match="TITLE_COLOR_MODE"):
+        _director_env(monkeypatch, tmp_path, TITLE_COLOR_MODE="rainbow")
+
+
+def test_each_title_line_keeps_the_colour_it_reads_as():
+    """White over crimson at a glance, the colour running between them.
+
+    Spread evenly over the characters the ramp turned the end of the first
+    line pink; each line now stays nearer its own end of the ramp.
+    """
+    top, bottom = acd.title_fills(["男人不能为女人", "做的3件事"], CRIMSON, ramp=True)
+    near = _oklab(CRIMSON.primary)[0], _oklab(CRIMSON.accent)[0]
+    for fill in top:
+        lightness = _oklab(fill)[0]
+        assert abs(lightness - near[0]) < abs(lightness - near[1]), f"{fill} in the first line reads as the accent"
+    for fill in bottom:
+        lightness = _oklab(fill)[0]
+        assert abs(lightness - near[1]) < abs(lightness - near[0]), f"{fill} in the last line reads as the primary"
+
+
+def test_a_one_line_title_ramps_across_itself():
+    (row,) = acd.title_fills(["认知觉醒"], CRIMSON, ramp=True)
+    assert row[0] == pytest.approx(CRIMSON.primary, abs=1e-4)
+    assert row[-1] == pytest.approx(CRIMSON.accent, abs=1e-4)
+
+
+# -------------------------------------------------- the reference anchor ----
+
+
+def test_the_anchor_is_the_first_frame_with_the_recurring_cast():
+    scenes = [acd.Scene(text="a", image_prompt="x"), acd.Scene(text="b", image_prompt="x", cast=["A"]),
+              acd.Scene(text="c", image_prompt="x", cast=["A"])]
+    assert acd.anchor_scene(scenes) == 1
+    assert acd.anchor_scene(scenes[:1]) == 0, "with no cast the first frame anchors the look"
+
+
+def test_a_reference_is_a_small_jpeg(tmp_path):
+    import base64
+    import io
+
+    from PIL import Image
+
+    frame = tmp_path / "02_frame.png"
+    Image.new("RGB", (2560, 1440), (20, 30, 70)).save(frame)
+    uri = acd.reference_image(frame)
+    assert uri.startswith("data:image/jpeg;base64,")
+    with Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1]))) as picture:
+        assert (picture.format, picture.size) == ("JPEG", (acd.REFERENCE_WIDTH, 720))
+
+
+class _Answer:
+    def __init__(self, status, body):
+        self.status_code, self._body = status, body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+def test_a_reference_travels_in_the_image_field(monkeypatch, tmp_path):
+    import base64
+
+    sent = []
+    png = base64.b64encode(b"not really a png").decode()
+    monkeypatch.setattr(net, "post", lambda url, **kwargs: sent.append(kwargs["json"]) or
+                        _Answer(200, {"data": [{"b64_json": png}]}))
+    acd.generate_image(_ImageConfig(), "p", tmp_path / "01_a.png")
+    acd.generate_image(_ImageConfig(), "p", tmp_path / "02_b.png", reference="data:image/jpeg;base64,AAAA")
+    assert "image" not in sent[0]
+    assert sent[1]["image"] == "data:image/jpeg;base64,AAAA"
+
+
+def test_an_endpoint_that_refuses_references_names_the_setting(monkeypatch, tmp_path):
+    monkeypatch.setattr(net, "post", lambda url, **kwargs: _Answer(400, {"error": "image not supported"}))
+    with pytest.raises(RuntimeError, match="IMAGE_REFERENCE=off"):
+        acd.generate_image(_ImageConfig(), "p", tmp_path / "01_a.png", reference="data:image/jpeg;base64,AAAA")
+
+
+def test_the_prompt_says_what_a_reference_is_for():
+    scene = acd.Scene(text="一句", image_prompt="a shop")
+    assert acd.REFERENCE_NOTE in acd.compose_image_prompt(_StubConfig(), scene, [], referenced=True)
+    assert acd.REFERENCE_NOTE not in acd.compose_image_prompt(_StubConfig(), scene, [])
+
+
+def test_an_unknown_reference_mode_is_refused(monkeypatch, tmp_path):
+    with pytest.raises(RuntimeError, match="IMAGE_REFERENCE"):
+        _director_env(monkeypatch, tmp_path, IMAGE_REFERENCE="everything")
+
+
+# ---------------------------------------------------- every problem at once --
+# A fresh clone used to need three rounds of --check-config to learn it wanted
+# a drafts folder, a key and a voice, one at a time.
+
+
+def _bare_env(monkeypatch, tmp_path, **values):
+    for name in ("ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "JIAN_YING_DRAFT_DIR", "DEEPSEEK_API_KEY",
+                 "OPENING_SOUND_PATH", "NARRATION_SUBTITLE_SIZE", "IMAGE_STYLES_FILE", "IMAGE_STYLE_PRESET"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(jianying, "jianying_app_roots", list)
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_every_problem_is_reported_at_once(monkeypatch, tmp_path):
+    _bare_env(monkeypatch, tmp_path, NARRATION_SUBTITLE_SIZE="huge")
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load()
+    message = str(caught.value)
+    assert message.startswith("4 settings need attention:")
+    for named in ("JIAN_YING_DRAFT_DIR", "ARK_API_KEY", "ARK_TTS_VOICE_TYPE", "NARRATION_SUBTITLE_SIZE"):
+        assert named in message, named
+    assert "\n  4. " in message
+
+
+def test_a_single_problem_reads_exactly_as_it_always_did(monkeypatch, tmp_path):
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    _bare_env(monkeypatch, tmp_path, JIAN_YING_DRAFT_DIR=str(drafts), ARK_TTS_VOICE_TYPE="v")
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load()
+    assert str(caught.value) == "Missing ARK_API_KEY; set it in .env."
+
+
+def test_a_plan_needs_only_the_text_model(monkeypatch, tmp_path):
+    """No Jianying, no voice, no cue: a storyboard can still be previewed."""
+    _bare_env(monkeypatch, tmp_path, DEEPSEEK_API_KEY="sk-test", OPENING_SOUND_PATH=str(tmp_path / "missing.mp3"))
+    cfg = acd.Config.load(purpose="plan")
+    assert cfg.text_provider == "deepseek"
+    with pytest.raises(RuntimeError, match="4 settings need attention") as caught:
+        acd.Config.load()          # a real run still needs every one of them
+    assert "OPENING_SOUND_PATH" in str(caught.value)
+
+
+def test_a_plan_written_on_ark_still_needs_the_ark_key(monkeypatch, tmp_path):
+    _bare_env(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load(purpose="plan")
+    assert str(caught.value) == "Missing ARK_API_KEY; set it in .env."
+
+
+def test_a_broken_styles_file_is_not_blamed_on_the_preset_as_well(monkeypatch, tmp_path):
+    broken = tmp_path / "styles.json"
+    broken.write_text("{ not json", encoding="utf-8")
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    _bare_env(monkeypatch, tmp_path, ARK_API_KEY="k", ARK_TTS_VOICE_TYPE="v", JIAN_YING_DRAFT_DIR=str(drafts),
+              IMAGE_STYLES_FILE=str(broken), IMAGE_STYLE_PRESET="my_own_style")
+    with pytest.raises(RuntimeError) as caught:
+        acd.Config.load()
+    assert "IMAGE_STYLES_FILE is not readable JSON" in str(caught.value)
+    assert "IMAGE_STYLE_PRESET must be one of" not in str(caught.value)

@@ -9,11 +9,22 @@ dependencies = [
     # rename them and the failure surfaces as a bare AttributeError.
     "pyJianYingDraft>=0.3.0,<0.4.0",
     "requests>=2.31.0",
+    # Shrinks the anchor frame sent with IMAGE_REFERENCE=anchor. It already
+    # arrives with pyJianYingDraft (through imageio); named because it is used.
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
-# Pillow is only used by the integration test to synthesise images.
-dev = ["pytest>=8.0", "ruff>=0.6", "Pillow>=10.0.0"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# The command stays a top-level script; the code it runs is the package.
+packages = ["daodaoshou"]
+py-modules = ["animated_caption_draft"]
 
 [tool.ruff]
 line-length = 140
@@ -21,6 +32,10 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "UP", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Re-exports the package so `import animated_caption_draft` keeps working.
+"animated_caption_draft.py" = ["F403"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
