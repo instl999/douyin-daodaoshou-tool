@@ -505,7 +505,11 @@ MAX_IMAGE_CONCURRENCY = 8
 # without one still composes - the subject is named generically - but the
 # picture is only as focused as the description it was given, so a resume
 # from v7 keeps the flatter images it already paid for.
-MANIFEST_VERSION = 8
+# 9 names every clip and frame after the inputs that made it (see "assets"),
+# records the voice and the style beside the speed, and gives each scene a
+# `take` for --redo. Files from an older run are trusted once when it is
+# resumed, and renamed to the key they would have had.
+MANIFEST_VERSION = 9
 
 NARRATION_SUBTITLE_TRACK = "narration_subtitles"
 TITLE_OVERLAY_TRACK = "title_overlay"
@@ -682,10 +686,14 @@ class Scene:
     audio_path: str | None = None
     image_path: str | None = None
     duration_us: int | None = None
+    # How many times the frame has been redrawn with --redo. Part of the
+    # frame's key, so a redraw is a new file rather than the old one found
+    # again, and it moves a fixed ARK_IMAGE_SEED on so the redraw differs.
+    take: int = 0
 
 
 SCENE_FIELDS = ("text", "image_prompt", "subject", "shot_size", "pause_after",
-                "cast", "audio_path", "image_path", "duration_us")
+                "cast", "audio_path", "image_path", "duration_us", "take")
 
 
 @dataclass
@@ -2402,7 +2410,7 @@ def synthesize_tts(cfg: Config, text: str, target: Path) -> None:
             audio_chunks.append(base64.b64decode(event["data"]))
     if not audio_chunks:
         raise RuntimeError("Ark TTS returned no audio data.")
-    target.write_bytes(b"".join(audio_chunks))
+    write_atomically(target, b"".join(audio_chunks))
 
 
 def populate_audio_durations(scenes: list[Scene]) -> None:
@@ -2416,7 +2424,8 @@ def populate_audio_durations(scenes: list[Scene]) -> None:
 
 # ------------------------------------------------------------------ image ----
 
-def generate_image(cfg: Config, prompt: str, target: Path) -> None:
+def generate_image(cfg: Config, prompt: str, target: Path, seed: int | None = None) -> None:
+    """Draw one frame. `seed` is the scene's own (see image_seed), not the setting."""
     payload: dict[str, Any] = {
         "model": cfg.ark_image_model,
         "prompt": prompt,
@@ -2426,8 +2435,8 @@ def generate_image(cfg: Config, prompt: str, target: Path) -> None:
         "output_format": cfg.ark_image_output_format,
         "watermark": False,
     }
-    if cfg.ark_image_seed is not None:
-        payload["seed"] = cfg.ark_image_seed
+    if seed is not None:
+        payload["seed"] = seed
     response = post(
         cfg.ark_image_url,
         headers={"Authorization": f"Bearer {cfg.ark_api_key}", "Content-Type": "application/json"},
@@ -2441,13 +2450,13 @@ def generate_image(cfg: Config, prompt: str, target: Path) -> None:
         raise RuntimeError(f"Image API returned no image data: {body}")
     image = images[0]
     if image.get("b64_json"):
-        target.write_bytes(base64.b64decode(image["b64_json"]))
+        write_atomically(target, base64.b64decode(image["b64_json"]))
         return
     image_url = image.get("url")
     if not image_url:
         raise RuntimeError(f"Image API returned an image without data or URL: {image}")
     download = ensure_ok(get(image_url, timeout=300), "Image download")
-    target.write_bytes(download.content)
+    write_atomically(target, download.content)
 
 
 # ----------------------------------------------------------------- draft ----
@@ -2965,12 +2974,213 @@ def add_bgm(cfg: Config, draft: Any, track: Any, material: Any, total_duration: 
         draft.add_segment(segment, track)
 
 
+# ---------------------------------------------------------------- assets ----
+#
+# Every clip and frame on disk is named after what made it: the scene number,
+# for people, then a short digest of every input that decides its content.
+#
+#     audio/07_3fa9c2e1d0.mp3      text, voice, speech rate, loudness, model
+#     images/07_b41f09aa2c.png     prompt, subject, framing, cast, style,
+#                                  model, size, seed, take
+#
+# The name is the proof. Files used to be called 07.mp3 and 07.png and were
+# adopted back by that name alone, which let a run pick up a file made for
+# other inputs and still report success:
+#
+#   - a fresh run under an existing --draft-name took the previous run's clip
+#     for scene 7, whatever the new scene 7 said. Re-running after a failure
+#     re-splits the copy, so every subtitle sat over narration reading a
+#     different sentence, and no API call was made to say otherwise;
+#   - a resume after changing IMAGE_STYLE_PRESET kept every old frame and laid
+#     the new style's grade and title over them, and one after changing the
+#     voice read the missing lines in the new voice beside the old ones.
+#
+# Now a file is used only if it was made from exactly the inputs its scene has
+# now. Reuse is safe by construction, anything stale is simply not found, and
+# a crashed run's finished files are still picked up.
+#
+# What the user controls goes into a key; this file's own wording does not.
+# The composition brief gets rewritten, and a resume after an upgrade keeps
+# the frames it already paid for rather than quietly redrawing every one -
+# the same call manifest v8 made.
+ASSET_KEY_LENGTH = 10
+
+
+def fingerprint(*parts: Any) -> str:
+    """A short digest of `parts`, stable across runs and machines."""
+    payload = json.dumps(parts, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:ASSET_KEY_LENGTH]
+
+
+def narration_key(cfg: Config, text: str) -> str:
+    """Everything that decides what a spoken clip sounds like.
+
+    The speech rate is the combined one - VIDEO_SPEED with the voice's own
+    trim - so a clip read at another speed is a different clip, which is what
+    the manifest's `speed` used to be kept for.
+    """
+    return fingerprint("narration", text.strip(), cfg.ark_tts_model, cfg.ark_tts_voice_type,
+                       cfg.ark_tts_speech_rate, cfg.ark_tts_loudness_rate)
+
+
+def image_seed(cfg: Config, scene: Scene) -> int | None:
+    """The seed a scene's frame is drawn with, or None for a random one.
+
+    A redrawn frame has to come back different, and with ARK_IMAGE_SEED set
+    the same prompt and seed return the same picture - so each take moves the
+    seed on by one. Take 0 uses the configured seed exactly.
+    """
+    if cfg.ark_image_seed is None:
+        return None
+    return cfg.ark_image_seed + scene.take
+
+
+def picture_key(cfg: Config, scene: Scene, characters: list[Character]) -> str:
+    """Everything the user controls that decides what a frame shows.
+
+    Not the subtitle: the frame is drawn from image_prompt and subject, so
+    correcting a typo in a line re-reads that line and keeps its picture.
+    """
+    lookup = {character.id: character.desc for character in characters}
+    cast = [lookup[cid] for cid in scene.cast if cid in lookup]
+    return fingerprint("picture", scene.image_prompt.strip(), (scene.subject or "").strip(),
+                       scene.shot_size, cast, cfg.image_style_prompt.strip(), cfg.style.medium,
+                       cfg.ark_image_model, cfg.ark_image_size, cfg.ark_image_output_format,
+                       image_seed(cfg, scene), scene.take)
+
+
+def style_key(cfg: Config) -> str:
+    """The look as the image model receives it, to tell an edited preset apart."""
+    return fingerprint(cfg.image_style_prompt.strip(), cfg.style.medium)
+
+
+def keyed_path(directory: Path, index: int, key: str, suffix: str) -> Path:
+    return directory / f"{index:02d}_{key}{suffix}"
+
+
+def write_atomically(target: Path, data: bytes) -> None:
+    """Write a file whole or not at all.
+
+    A file's name is taken as proof of what it holds, so a crash halfway
+    through a write must not leave half a clip under a good name for the next
+    run to adopt.
+    """
+    partial = target.with_name(target.name + ".part")
+    partial.write_bytes(data)
+    partial.replace(target)
+
+
+def _usable(path: Path | None) -> bool:
+    return path is not None and path.is_file() and path.stat().st_size > 0
+
+
+# A pre-v9 file: the bare scene number, 07.mp3.
+_LEGACY_ASSET_NAME = re.compile(r"\d{2,}")
+
+
+@dataclass
+class Reconciled:
+    """What a run found on disk before paying for anything."""
+
+    narration_reused: int = 0
+    # Had a file, but one made for other inputs: re-read / redrawn.
+    narration_stale: int = 0
+    pictures_reused: int = 0
+    pictures_stale: int = 0
+    # Files from a pre-v9 run, renamed to the key they would have had.
+    migrated: int = 0
+
+
+def _reconcile_one(scene: Scene, attribute: str, expected: Path, legacy: Path | None) -> str:
+    """Point one of a scene's files at `expected` if that file exists.
+
+    Returns 'reused', 'migrated', 'stale' (the scene had a file, made from
+    other inputs) or 'missing'.
+    """
+    recorded = getattr(scene, attribute)
+    if _usable(expected):
+        setattr(scene, attribute, str(expected.resolve()))
+        return "reused"
+    if legacy is not None:
+        # Written before files carried their inputs in their names. Those
+        # runs trusted their files and so does resuming one: each is renamed,
+        # once, to the key it would have had, and is an ordinary file after.
+        for candidate in (Path(recorded) if recorded else None, legacy):
+            if _usable(candidate) and _LEGACY_ASSET_NAME.fullmatch(candidate.stem):
+                candidate.replace(expected)
+                setattr(scene, attribute, str(expected.resolve()))
+                return "migrated"
+    setattr(scene, attribute, None)
+    return "stale" if recorded else "missing"
+
+
+def reconcile_assets(cfg: Config, scenes: list[Scene], characters: list[Character],
+                     audio_dir: Path, image_dir: Path, *,
+                     legacy_audio: bool = False, legacy_images: bool = False) -> Reconciled:
+    """Point every scene at the files made from its current inputs, and only those.
+
+    `legacy_audio` / `legacy_images` trust a pre-v9 run's files - only ever
+    when that run is being resumed, and for the narration only when it was
+    read at this speed.
+    """
+    found = Reconciled()
+    for index, scene in enumerate(scenes, 1):
+        audio = _reconcile_one(
+            scene, "audio_path",
+            keyed_path(audio_dir, index, narration_key(cfg, scene.text), ".mp3"),
+            audio_dir / f"{index:02d}.mp3" if legacy_audio else None)
+        picture = _reconcile_one(
+            scene, "image_path",
+            keyed_path(image_dir, index, picture_key(cfg, scene, characters), ".png"),
+            image_dir / f"{index:02d}.png" if legacy_images else None)
+        found.narration_reused += audio in {"reused", "migrated"}
+        found.narration_stale += audio == "stale"
+        found.pictures_reused += picture in {"reused", "migrated"}
+        found.pictures_stale += picture == "stale"
+        found.migrated += (audio == "migrated") + (picture == "migrated")
+    return found
+
+
+def render_settings(cfg: Config) -> dict[str, str]:
+    """The run-wide settings a manifest records, so a resume can say what changed."""
+    return {"voice": cfg.ark_tts_voice_type, "style": cfg.style_preset, "style_key": style_key(cfg)}
+
+
+def explain_reconciled(previous: dict[str, Any] | None, cfg: Config, found: Reconciled) -> list[str]:
+    """One line for each reason something already made is being made again.
+
+    The reason is named when the manifest can name it - a different voice, a
+    different style - because "12 frames will be redrawn" with no reason
+    attached reads as a bug, and it is a bill.
+    """
+    lines: list[str] = []
+    previous = previous or {}
+    was_voice, was_style = previous.get("voice"), previous.get("style")
+    if found.narration_stale:
+        reason = (f"the voice changed ({was_voice} -> {cfg.ark_tts_voice_type})"
+                  if was_voice and was_voice != cfg.ark_tts_voice_type
+                  else "their text, voice or speed changed")
+        lines.append(f"{found.narration_stale} narration clip(s) will be read again: {reason}.")
+    if found.pictures_stale:
+        if was_style and was_style != cfg.style_preset:
+            reason = f"the style changed ({was_style} -> {cfg.style_preset})"
+        elif previous.get("style_key") and previous["style_key"] != style_key(cfg):
+            reason = f"the {cfg.style_preset} style's prompt changed"
+        else:
+            reason = "their prompt, framing, cast, seed or take changed"
+        lines.append(f"{found.pictures_stale} frame(s) will be drawn again: {reason}.")
+    if found.migrated:
+        lines.append(f"{found.migrated} file(s) from an older run were kept and renamed after their inputs.")
+    return lines
+
+
 # ----------------------------------------------------------------- state ----
 
 def save_run_state(asset_root: Path, draft_name: str, title: str, copy: str, scenes: list[Scene],
                    characters: list[Character], status: str, failures: list[dict[str, Any]],
                    speed: float = BASELINE_VIDEO_SPEED,
-                   moods: list[str] | None = None) -> None:
+                   moods: list[str] | None = None,
+                   render: dict[str, str] | None = None) -> None:
     state = {
         "version": MANIFEST_VERSION,
         "draft_name": draft_name,
@@ -2981,8 +3191,12 @@ def save_run_state(asset_root: Path, draft_name: str, title: str, copy: str, sce
         # at another speed would keep the old clips, cut the new timeline to
         # them, and produce a video that is neither speed while reporting a
         # clean run - which is exactly the silent kind of wrong this tool is
-        # full of guards against.
+        # full of guards against. The file names now carry the rate as well;
+        # this stays so a resume can say that the speed is why.
         "speed": speed,
+        # The voice and the look, for the same reason: a resume that re-reads
+        # or redraws everything should be able to say which setting moved.
+        **(render or {}),
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         # How the director read the copy, which is what the music is chosen
         # from. Stored because a --resume never calls the director again, and
@@ -3008,6 +3222,8 @@ def scenes_from_manifest(state: dict[str, Any]) -> list[Scene]:
     for item in state.get("scenes", []):
         values = {key: item.get(key) for key in SCENE_FIELDS}
         values["cast"] = values.get("cast") or []
+        # Absent before manifest v9: every frame was a first take.
+        values["take"] = int(values.get("take") or 0)
         scenes.append(Scene(**values))
     return scenes
 
@@ -3037,9 +3253,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     load_env()
     cfg = Config.load(speed=args.speed)
     if args.check_config:
@@ -3052,6 +3268,14 @@ def main() -> int:
     # What the narration already on disk was read at. A fresh run has none, so
     # it is whatever this run is about to use.
     previous_speed = cfg.speed
+    # The manifest being resumed, if any: what a resume compares itself with
+    # when it says why something already made is being made again.
+    previous: dict[str, Any] | None = None
+    render = render_settings(cfg)
+
+    def save(status: str) -> None:
+        save_run_state(asset_root, draft_name, title, copy, scenes, characters,
+                       status, failures, cfg.speed, moods, render)
 
     if args.resume:
         draft_name = args.resume
@@ -3060,6 +3284,7 @@ def main() -> int:
         if not manifest_path.is_file():
             raise RuntimeError(f"Resume manifest does not exist: {manifest_path}")
         state = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+        previous = state
         if int(state.get("version", 0)) < MANIFEST_VERSION:
             print(
                 f"Manifest was written by an older version (v{state.get('version')}); "
@@ -3112,8 +3337,7 @@ def main() -> int:
         scenes, characters, moods = plan_scenes(cfg, copy)
         append_run_log(asset_root, "storyboard_completed", scene_count=len(scenes),
                        character_count=len(characters))
-        save_run_state(asset_root, draft_name, title, copy, scenes,
-                       characters, "planned", failures, cfg.speed, moods)
+        save("planned")
 
     if args.plan_only:
         print(json.dumps(
@@ -3135,16 +3359,19 @@ def main() -> int:
               f"being re-read at the new speed. Images are kept.")
         append_run_log(asset_root, "revoice_for_speed", was=previous_speed,
                        now=cfg.speed)
-    for index, scene in enumerate(scenes, 1):
-        if not stale_speed:
-            adopt_existing_asset(scene, "audio_path", audio_dir / f"{index:02d}.mp3")
-        adopt_existing_asset(scene, "image_path", image_dir / f"{index:02d}.png")
-    save_run_state(asset_root, draft_name, title, copy, scenes,
-                   characters, "reconciled", failures, cfg.speed, moods)
-    append_run_log(asset_root, "assets_reconciled")
+    # Only a file made from a scene's current inputs is picked up - never one
+    # that merely has the right number. A fresh run has no older files to
+    # trust; a resumed pre-v9 run trusts its own, as it always did.
+    legacy = bool(args.resume) and int((previous or {}).get("version", 0)) < MANIFEST_VERSION
+    found = reconcile_assets(cfg, scenes, characters, audio_dir, image_dir,
+                             legacy_audio=legacy and not stale_speed, legacy_images=legacy)
+    for line in explain_reconciled(previous, cfg, found):
+        print(line)
+    save("reconciled")
+    append_run_log(asset_root, "assets_reconciled", **asdict(found))
 
     def make_tts(index: int, scene: Scene) -> tuple[int, Path]:
-        audio_path = audio_dir / f"{index:02d}.mp3"
+        audio_path = keyed_path(audio_dir, index, narration_key(cfg, scene.text), ".mp3")
         synthesize_tts(cfg, scene.text, audio_path)
         return index, audio_path
 
@@ -3163,20 +3390,17 @@ def main() -> int:
                 except Exception as exc:
                     failure = {"stage": "tts", "scene": index, "error": str(exc)}
                     failures.append(failure)
-                    save_run_state(asset_root, draft_name, title, copy, scenes,
-                                   characters, "failed", failures, cfg.speed, moods)
+                    save("failed")
                     append_run_log(asset_root, "tts_failed", **failure)
                     raise
                 scenes[index - 1].audio_path = str(audio_path.resolve())
-                save_run_state(asset_root, draft_name, title, copy, scenes,
-                               characters, "tts_in_progress", failures, cfg.speed, moods)
+                save("tts_in_progress")
                 append_run_log(asset_root, "tts_completed", scene=index)
                 completed_tts += 1
                 report_progress("Voice-over", completed_tts, len(pending_tts))
 
     populate_audio_durations(scenes)
-    save_run_state(asset_root, draft_name, title, copy, scenes,
-                   characters, "audio_durations_ready", failures, cfg.speed, moods)
+    save("audio_durations_ready")
 
     # The title gets its own voice clip. It is not one of the scenes: the copy
     # is what the scenes narrate, and when --title is given the overlay says
@@ -3192,18 +3416,13 @@ def main() -> int:
         append_run_log(asset_root, "title_tts_skipped", reason="already said in the opening")
         print("Title voice-over skipped: the copy already opens by saying it.")
     elif cfg.speak_title and title.strip():
-        # Keyed on the title's own text, not a fixed name. --resume keeps
-        # whatever audio is already on disk, so a fixed name meant resuming
-        # with a different --title spoke the OLD title over the new one on
-        # screen - and the run would look entirely successful.
-        # Keyed on the speed as well as the text. The scene clips are dropped
-        # wholesale when the speed changes; this one is cached by name, so the
-        # name is what has to carry it - otherwise a re-run at 1.2x kept a
-        # title read at 1.5x over a card sized for 1.2x.
-        digest = hashlib.sha1(
-            f"{title.strip()}@{speech_rate_for(cfg.speed)}".encode()
-        ).hexdigest()[:12]
-        candidate = audio_dir / f"title_{digest}.mp3"
+        # Keyed like every other clip, not a fixed name. On the title's own
+        # text: a fixed name meant resuming with a different --title spoke the
+        # OLD title over the new one on screen, and the run looked entirely
+        # successful. On the rate: a re-run at 1.2x kept a title read at 1.5x
+        # over a card sized for 1.2x. And on the voice, which the old key
+        # left out, so a new voice still opened on the old one.
+        candidate = audio_dir / f"title_{narration_key(cfg, title)}.mp3"
         if not candidate.is_file() or candidate.stat().st_size == 0:
             append_run_log(asset_root, "title_tts_started")
             report_progress("Title voice", 0, 1)
@@ -3227,8 +3446,9 @@ def main() -> int:
         print_image_cost_estimate(cfg, len(pending_images), len(pending_images), "Estimated remaining image cost")
 
     def make_image(index: int, scene: Scene) -> tuple[int, Path]:
-        image_path = image_dir / f"{index:02d}.png"
-        generate_image(cfg, compose_image_prompt(cfg, scene, characters), image_path)
+        image_path = keyed_path(image_dir, index, picture_key(cfg, scene, characters), ".png")
+        generate_image(cfg, compose_image_prompt(cfg, scene, characters), image_path,
+                       seed=image_seed(cfg, scene))
         return index, image_path
 
     if pending_images:
@@ -3251,21 +3471,18 @@ def main() -> int:
                     failure = {"stage": "image", "scene": index, "error": str(exc)}
                     failures.append(failure)
                     current_image_failures.append(failure)
-                    save_run_state(asset_root, draft_name, title, copy, scenes,
-                                   characters, "failed", failures, cfg.speed, moods)
+                    save("failed")
                     append_run_log(asset_root, "image_failed", **failure)
                 else:
                     scenes[index - 1].image_path = str(image_path.resolve())
-                    save_run_state(asset_root, draft_name, title, copy, scenes,
-                                   characters, "image_in_progress", failures, cfg.speed, moods)
+                    save("image_in_progress")
                     append_run_log(asset_root, "image_completed", scene=index)
                 finally:
                     finished_images += 1
                     report_progress("Images", finished_images, len(pending_images))
 
         if current_image_failures:
-            save_run_state(asset_root, draft_name, title, copy, scenes,
-                           characters, "failed", failures, cfg.speed, moods)
+            save("failed")
             first_failure = current_image_failures[0]
             raise RuntimeError(
                 f"{len(current_image_failures)} image(s) failed; successful images were kept for --resume. "
@@ -3287,24 +3504,15 @@ def main() -> int:
     except Exception as exc:
         failure = {"stage": "draft", "error": str(exc)}
         failures.append(failure)
-        save_run_state(asset_root, draft_name, title, copy, scenes,
-                       characters, "failed", failures, cfg.speed, moods)
+        save("failed")
         append_run_log(asset_root, "draft_failed", **failure)
         raise
     report_progress("Draft", 1, 1)
     failures = []
-    save_run_state(asset_root, draft_name, title, copy, scenes,
-                   characters, "completed", failures, cfg.speed, moods)
+    save("completed")
     append_run_log(asset_root, "completed", draft_path=str(draft_path))
     print(f"Done: {draft_path}")
     return 0
-
-
-def adopt_existing_asset(scene: Scene, attribute: str, path: Path) -> None:
-    if getattr(scene, attribute):
-        return
-    if path.is_file() and path.stat().st_size > 0:
-        setattr(scene, attribute, str(path.resolve()))
 
 
 if __name__ == "__main__":

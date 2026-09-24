@@ -115,7 +115,7 @@ This is what separates it from a batch image slideshow.
 | **Measured title typography** | The title block is centred, broken onto two or three lines and coloured line by line, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
 | **Consistent cast** | The storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds |
 | **Varied framing** | Wide / medium / close chosen per line — wide to open a section and establish a place, close for a feeling, a turn or a conclusion |
-| **One image, one whole shot** | `01.png` runs to its end and `02.png` follows; an image is never cut into two segments |
+| **One image, one whole shot** | Picture 1 runs to its end and picture 2 follows; an image is never cut into two segments |
 | **Constant camera speed** | Five camera moves cycle per scene, and how far each travels is derived from the shot's length, so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan stays inside the headroom the scale provides and never exposes the frame edge |
 | **Room to breathe** | A beat of BGM only after each paragraph (the outgoing picture holds through it); the video ends on the last subtitle, with no dead air after it |
 | **Music matched to the copy** | One bed picked from the library by the mood label on each filename, matched to how the director read the script; nothing found means no music |
@@ -632,11 +632,11 @@ Every run keeps its full state under:
 
 ```text
 output/<draft-name>/
-  manifest.json    scenes, cast, asset paths
+  manifest.json    scenes, cast, asset paths, the speed, voice and style used
   failures.json    what went wrong
   run.log          per-event log
-  audio/           01.mp3, 02.mp3 ...
-  images/          01.png, 02.png ...
+  audio/           01_3fa9c2e1d0.mp3, 02_…  (scene number + a digest of its inputs)
+  images/          01_b41f09aa2c.png, 02_…
 ```
 
 Assets that already succeeded are reused; only what is missing is retried:
@@ -645,9 +645,36 @@ Assets that already succeeded are reused; only what is missing is retried:
 python animated_caption_draft.py --resume my_story
 ```
 
-The one exception is a change of speed. `manifest.json` records what the
-narration on disk was read at, and resuming at a different one re-reads the
-voice and keeps every image — see [Speed](#speed).
+**Every file is named after what made it.** The digest after the scene number
+covers everything that decides the file's content — for a clip: the text, the
+voice, the speech rate and loudness; for a frame: `image_prompt`, `subject`,
+the shot size, the cast descriptions, the style, the model, size and seed.
+A file is reused only when all of that still matches, so:
+
+| You changed | What happens on the next run |
+| --- | --- |
+| Nothing (`--resume` after a failure) | Everything that finished is reused; only the rest is made |
+| The speed | Narration is re-read at the new speed; every image is kept |
+| `ARK_TTS_VOICE_TYPE` | Every line and the title are re-read in the new voice |
+| `IMAGE_STYLE_PRESET` / `IMAGE_STYLE_PROMPT` | Every frame is redrawn in the new style (billed); narration is kept |
+| One scene's `image_prompt` in `manifest.json` | Only that frame is redrawn |
+| One scene's `text` in `manifest.json` | Only that line is re-read; its picture is kept |
+| The same `--draft-name` for a fresh run | Only files whose inputs are identical are reused; nothing is taken on its number alone |
+
+Before spending anything the run says what it is making again and why, e.g.
+`3 frame(s) will be drawn again: the style changed (midnight -> noir).`
+
+This is what stops a re-run from quietly reusing the wrong file. Files used to
+be called `01.mp3` and picked up by that number alone: re-running the same
+command after a failure re-splits the copy, and every subtitle ended up over a
+clip reading a different sentence; changing the style and resuming kept the old
+frames under the new style's grade and title. Both reported success.
+
+A run from an older version (manifest before v9, files named `01.mp3`) is
+trusted once when it is resumed, the way it always was, and its files are
+renamed to their keys. A crashed run's finished files are picked up too —
+every file is written to a temporary name and renamed only when complete, so a
+half-written file never sits under a valid name.
 
 > **Overwriting an existing draft requires `--replace`, including with `--resume`.** Overwriting deletes the whole draft folder, so any edits you made in Jianying go with it. Close the draft in Jianying first.
 
@@ -681,6 +708,7 @@ The suite covers every piece of logic that does not call a paid API:
 - Style completeness: nine presets each carrying `medium` / `avoid` / `grade` / `title`, and the backward-compatible string form
 - Storyboard JSON tolerance, framing and paragraph-mark parsing
 - One integration test that builds a real draft from synthetic media and asserts against the parsed `draft_content.json`
+- Whole runs of the command with the paid services faked: a re-run after a failure never narrates one line under another; a new style, voice or speed redoes exactly what depends on it; an unchanged resume pays for nothing; an older run's files are trusted once and renamed
 
 ---
 
