@@ -547,3 +547,26 @@ def test_the_summary_is_in_the_run_log_too(studio):
                                                  (600_000_000, "10:00.0")])
 def test_lengths_read_the_way_an_editor_writes_them(microseconds, shown):
     assert acd.format_length(microseconds) == shown
+
+
+def test_a_redo_on_an_older_run_really_draws_again(studio):
+    """An unkeyed frame is a first take; asked for another, it must not answer."""
+    output = studio.root / "output" / "story"
+    (output / "audio").mkdir(parents=True)
+    (output / "images").mkdir()
+    scenes = []
+    for index, line in enumerate(FIRST_SPLIT, 1):
+        (output / "audio" / f"{index:02d}.mp3").write_bytes(_wav(1.0))
+        (output / "images" / f"{index:02d}.png").write_bytes(_png())
+        scenes.append({"text": line, "image_prompt": f"frame {index}", "subject": "", "shot_size": "medium",
+                       "pause_after": False, "cast": [], "duration_us": None,
+                       "audio_path": str(output / "audio" / f"{index:02d}.mp3"),
+                       "image_path": str(output / "images" / f"{index:02d}.png")})
+    (output / "manifest.json").write_text(json.dumps({
+        "version": 8, "draft_name": "story", "title": FIRST_SPLIT[0], "copy": COPY, "status": "completed",
+        "speed": acd.DEFAULT_VIDEO_SPEED, "moods": [], "characters": [], "scenes": scenes, "failures": [],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    assert studio.run("--resume", "story", "--redo", "2") == 0
+    assert [name[:2] for name, _ in studio.image_calls] == ["02"], "the redo was answered by the old frame"
+    assert studio.tts_calls == [], "the rest of the older run is still trusted"

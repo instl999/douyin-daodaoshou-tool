@@ -23,7 +23,8 @@ def frames_to_draw(cfg: Config, scenes: list[Scene], characters: list[Character]
         if _usable(keyed_path(image_dir, index, picture_key(cfg, scene, characters), ".png")):
             return True
         recorded = Path(scene.image_path) if scene.image_path else None
-        return legacy and _usable(recorded) and bool(_LEGACY_ASSET_NAME.fullmatch(recorded.stem))
+        return (legacy and scene.take == 0 and _usable(recorded)
+                and bool(_LEGACY_ASSET_NAME.fullmatch(recorded.stem)))
     return sum(not drawn(index, scene) for index, scene in enumerate(scenes, 1))
 
 
@@ -182,10 +183,12 @@ def reconcile_assets(cfg: Config, scenes: list[Scene], characters: list[Characte
             scene, "audio_path",
             keyed_path(audio_dir, index, narration_key(cfg, scene.text), ".mp3"),
             audio_dir / f"{index:02d}.mp3" if legacy_audio else None)
+        # An unkeyed frame is always a first take: one asked to be drawn
+        # again (--redo) must not find the old one and call it the new one.
         picture = _reconcile_one(
             scene, "image_path",
             keyed_path(image_dir, index, picture_key(cfg, scene, characters), ".png"),
-            image_dir / f"{index:02d}.png" if legacy_images else None)
+            image_dir / f"{index:02d}.png" if legacy_images and scene.take == 0 else None)
         found.narration_reused += audio in {"reused", "migrated"}
         found.narration_stale += audio == "stale"
         found.pictures_reused += picture in {"reused", "migrated"}
