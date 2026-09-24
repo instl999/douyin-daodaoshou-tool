@@ -213,7 +213,7 @@ Notes:
   a `"default"` pointing at a key that does not exist, a preset with no `prompt`) **fails loudly with
   the location**, never falls back silently
 - The built-ins also live in code (`STYLE_PRESETS` in
-  [`animated_caption_draft.py`](animated_caption_draft.py)); same-named presets in `styles.json`
+  [`daodaoshou/styles.py`](daodaoshou/styles.py)); same-named presets in `styles.json`
   override them, so **upgrading the code will not overwrite your edits**
 - `ARK_IMAGE_SEED` in [.env.example](.env.example) fixes the seed for a steadier look and reproducible reruns
 - The style prompt is appended after each scene description by `compose_image_prompt()` — if the
@@ -768,6 +768,22 @@ python -m pip install -e ".[dev]"
 python -m pytest
 python -m ruff check .
 ```
+
+
+The code lives in the `daodaoshou/` package, one module per job; `animated_caption_draft.py` is only
+the command (it re-exports the package's names, so `import animated_caption_draft` still works):
+
+| Module | What it does |
+| --- | --- |
+| `config.py` | Every setting, parsed once with every problem reported at once; the global speed |
+| `storyboard.py` | The director: splitting the copy, subjects, framing, paragraphs, mood |
+| `images.py` / `tts.py` | Pictures (including the anchor frame) / narration |
+| `assets.py` | Files named after their inputs, and what a run may reuse |
+| `draft.py` | The Jianying draft: timeline, captions, title, camera, music, grade |
+| `styles.py` / `layout.py` / `camera.py` | Looks and composition / caption and title type and colour / camera moves |
+| `bgm.py` / `title.py` / `jianying.py` | The music library and ducking / the opening title / finding the drafts folder |
+| `state.py` / `report.py` / `net.py` / `env.py` | Manifest and log / terminal output / HTTP with retries / `.env` |
+| `cli.py` | The command: one run from copy to draft |
 
 The suite covers every piece of logic that does not call a paid API:
 

@@ -198,7 +198,7 @@ assets/
   `medium` / `avoid` / `grade` / `title` 仍沿用同名内置预设，所以改一句话不会顺手把配套滤镜弄丢
 - `styles.json` 缺失时会在首次运行按内置默认自动生成；文件坏了（非法 JSON、`"default"` 指向不存在的键、
   某个预设没有 `prompt`）会**直接报错并指出位置**，不会悄悄退回默认
-- 代码里保留了一份内置默认（[`animated_caption_draft.py`](animated_caption_draft.py) 的 `STYLE_PRESETS` 字典），
+- 代码里保留了一份内置默认（[`daodaoshou/styles.py`](daodaoshou/styles.py) 的 `STYLE_PRESETS` 字典），
   `styles.json` 里的同名预设会覆盖它 —— **升级代码不会冲掉你改过的画风**
 - `ARK_IMAGE_SEED`（[`.env.example`](.env.example)）：固定随机种子，画风更稳、重跑可复现
 - 画风提示词由 `compose_image_prompt()` 拼在每句分镜描述之后 —— 画面跑偏时先 `--plan-only` 看分镜描述本身对不对，分镜偏了改画风没用
@@ -692,6 +692,22 @@ python -m pip install -e ".[dev]"
 python -m pytest
 python -m ruff check .
 ```
+
+
+代码按职责分在 `daodaoshou/` 包里，`animated_caption_draft.py` 只是命令入口（并把包里的名字原样转出，
+`import animated_caption_draft` 照旧能用）：
+
+| 模块 | 负责 |
+| --- | --- |
+| `config.py` | 全部配置，一次解析、问题一次列全；整片速度 |
+| `storyboard.py` | 分镜导演：拆句、主体、景别、段落、情绪 |
+| `images.py` / `tts.py` | 生图（含参考图锚定）/ 配音 |
+| `assets.py` | 按输入命名的素材文件，以及一次运行能复用什么 |
+| `draft.py` | 写剪映草稿：时间轴、字幕、标题、运镜、BGM、调色 |
+| `styles.py` / `layout.py` / `camera.py` | 画风与构图 / 字幕标题排版与配色 / 运镜 |
+| `bgm.py` / `title.py` / `jianying.py` | 曲库与闪避 / 开场标题 / 找剪映草稿目录 |
+| `state.py` / `report.py` / `net.py` / `env.py` | manifest 与日志 / 终端输出 / 带重试的 HTTP / `.env` |
+| `cli.py` | 命令本身：从文案到草稿的一次运行 |
 
 测试覆盖所有不需要调用付费接口的逻辑：
 
