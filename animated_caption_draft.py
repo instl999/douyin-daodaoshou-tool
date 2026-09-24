@@ -3643,6 +3643,25 @@ def scenes_from_manifest(state: dict[str, Any]) -> list[Scene]:
 
 # ------------------------------------------------------------------ main ----
 
+def parse_scene_numbers(text: str, count: int) -> list[int]:
+    """'3,7' or '3-5,9' as scene numbers, each checked against the storyboard."""
+    numbers: set[int] = set()
+    for part in text.replace("，", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        match = re.fullmatch(r"(\d+)(?:\s*-\s*(\d+))?", part)
+        if not match:
+            raise RuntimeError(f"--redo takes scene numbers such as 3,7 or 3-5, not {part!r}.")
+        first, last = sorted((int(match[1]), int(match[2] or match[1])))
+        if first < 1 or last > count:
+            raise RuntimeError(f"--redo {part}: this storyboard has scenes 1 to {count}.")
+        numbers.update(range(first, last + 1))
+    if not numbers:
+        raise RuntimeError("--redo needs at least one scene number.")
+    return sorted(numbers)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Create a Jianying draft from copy.")
     source = parser.add_mutually_exclusive_group(required=False)
@@ -3653,6 +3672,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume", metavar="DRAFT_NAME", help="Resume a failed run stored under output/DRAFT_NAME.")
     parser.add_argument("--replace", action="store_true",
                         help="Overwrite an existing Jianying draft. This deletes the whole draft folder.")
+    parser.add_argument("--redo", metavar="SCENES",
+                        help=("With --resume: draw these scenes' pictures again, e.g. 3,7 or 3-5. Each "
+                              "redraw is a new take, with a new seed when ARK_IMAGE_SEED is set; the "
+                              "earlier take stays on disk."))
     parser.add_argument("--check-config", action="store_true",
                         help="Validate local configuration and assets without API calls.")
     parser.add_argument("--plan-only", dest="plan_only", action="store_true",
@@ -3669,6 +3692,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.redo and (not args.resume or args.plan_only):
+        parser.error("--redo redraws scenes of an existing run: use it with --resume, without --plan-only")
     load_env()
     cfg = Config.load(speed=args.speed,
                       purpose="check" if args.check_config else "plan" if args.plan_only else "build")
@@ -3726,6 +3751,14 @@ def main(argv: list[str] | None = None) -> int:
         # Absent before manifest v6, which means the clips were made before
         # this setting existed and were read at the baseline.
         previous_speed = validate_speed(state.get("speed", BASELINE_VIDEO_SPEED))
+        if args.redo:
+            # A new take is a new key, so the frame is drawn again rather than
+            # found again, and the earlier take stays on disk beside it.
+            redo = parse_scene_numbers(args.redo, len(scenes))
+            for number in redo:
+                scenes[number - 1].take += 1
+            print(f"Drawing scene(s) {', '.join(map(str, redo))} again.")
+            append_run_log(asset_root, "redo_requested", scenes=redo)
         # A resume used to overwrite the draft unconditionally, which deletes
         # any edits already made in Jianying. It now needs --replace like any
         # other run. Printing the plan writes no draft, so it needs neither.

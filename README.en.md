@@ -62,7 +62,7 @@ Read README.en.md and .env.example, install the dependencies, and run --check-co
 **Review the storyboard before generating images**
 
 ```text
-Read copy.txt and prepare a midnight-style storyboard for “Why being busy makes us anxious”. Run --plan-only, review the subject, framing, and character consistency of every shot, and tell me how many images the full run would generate. Do not generate media yet.
+Read copy.txt and prepare a midnight-style storyboard for “Why being busy makes us anxious”, with the draft name anxiety_story. Run --plan-only, review the subject, framing, and character consistency of every shot, and tell me how many images the full run would generate. Do not generate media yet. Once I approve, make it with --resume anxiety_story from that storyboard instead of planning again.
 ```
 
 **Build an editable Jianying draft**
@@ -74,7 +74,7 @@ Use copy.txt with the title “Busy Is Not What Breaks You” and create a Jiany
 **Change the look or repair a shot**
 
 ```text
-Inspect the existing output/anxiety_story run. Switch it to the noir preset, or repair only the shots with unsuitable artwork. Reuse narration and successful assets wherever possible, and tell me which actions will trigger new image-generation charges.
+Inspect the existing output/anxiety_story run. Switch it to the noir preset (which redraws every frame), or redraw only the shots with unsuitable artwork using --redo. Reuse narration and successful assets wherever possible, and tell me how many frames will be redrawn before spending anything.
 ```
 
 > Cost note: `--check-config` makes no API calls; `--plan-only` still calls the
@@ -457,12 +457,46 @@ python animated_caption_draft.py --draft-name preview --input copy.txt --plan-on
 
 The output shows how each line was split, its framing, which lines end a paragraph, and the cast that was extracted. **Start here when the pictures are wrong** — the style prompt is appended after the scene description, so if the description itself went astray, changing the preset will not help.
 
+### Review the storyboard, edit it, then make the video
+
+The storyboard `--plan-only` makes is saved in `output/<draft-name>/manifest.json`. Once you have
+reviewed it, carry on with `--resume`, and **the video is made from the storyboard you reviewed** —
+nothing is planned again, and the storyboard is not paid for twice:
+
+```powershell
+python animated_caption_draft.py --draft-name my_story --input copy.txt --plan-only
+# read the output; if needed, edit a scene's text / subject / image_prompt /
+# shot_size / pause_after directly in output/my_story/manifest.json
+python animated_caption_draft.py --resume my_story
+```
+
+Running the command again from scratch instead (without `--resume`) plans a new storyboard — the
+model splits the copy differently every time, so what you reviewed would not be what gets made.
+
+The same works after the video is made: edit a scene's `image_prompt` and `--resume`, and only that
+frame is redrawn; edit its `text`, and only that line is re-read (see [Resuming](#resuming)).
+
+### Redraw only some frames: `--redo`
+
+When the prompt is fine and a frame simply came out badly, nothing needs editing:
+
+```powershell
+python animated_caption_draft.py --resume my_story --redo 3,7 --replace
+```
+
+`--redo` takes `3,7` or `3-5`, redraws only those frames and reuses all the narration and every other
+frame. Each redraw is a new take: the new frame is a new file and **the previous one stays on disk** —
+set `take` back in the manifest to return to it. With `ARK_IMAGE_SEED` set, each take moves the seed on
+by one; the same prompt with the same seed only draws the same picture again. As with any resume, a
+draft already in Jianying needs `--replace`.
+
 | Flag | Purpose |
 | --- | --- |
 | `--input` / `--text` | Where the copy comes from; pick one |
 | `--draft-name` | Draft name in Jianying; defaults to a timestamp |
 | `--title` | Title card; defaults to the first line of the copy |
-| `--resume DRAFT_NAME` | Continue a run, reusing assets that already succeeded |
+| `--resume DRAFT_NAME` | Continue a run, reusing assets that already succeeded; also makes a reviewed storyboard |
+| `--redo 3,7` | With `--resume`: redraw only these scenes' frames (a new take; the previous one is kept) |
 | `--replace` | Allow overwriting an existing draft (**deletes the whole draft folder**) |
 | `--check-config` | Validate configuration and assets without calling any API; every problem is listed at once |
 | `--plan-only` | Generate and print the storyboard only; needs only the text model's key |

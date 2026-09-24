@@ -416,3 +416,55 @@ def test_the_reviewed_storyboard_is_the_one_that_gets_made(studio, monkeypatch):
     monkeypatch.setattr(acd, "plan_scenes", lambda *a: pytest.fail("a resume must not plan again"))
     assert studio.run("--resume", "plan") == 0
     assert studio.pairs("plan")[0][0] == "楼下那家旧书店，我整整路过了三年"
+
+
+# ------------------------------------------------------------------ --redo --
+
+def test_redo_draws_only_the_named_scenes_again(studio):
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    before = studio.frames("story")
+
+    assert studio.run("--resume", "story", "--replace", "--redo", "2") == 0
+    after = studio.frames("story")
+    assert [name[:2] for name, _ in studio.image_calls] == ["02"]
+    assert studio.tts_calls == []
+    assert after[0] == before[0] and after[2] == before[2]
+    assert after[1] != before[1], "the draft must show the new take"
+    assert (studio.root / "output" / "story" / "images" / before[1]).is_file(), "the earlier take stays on disk"
+    state = json.loads((studio.root / "output" / "story" / "manifest.json").read_text(encoding="utf-8"))
+    assert [scene["take"] for scene in state["scenes"]] == [0, 1, 0]
+
+
+def test_a_redo_with_a_fixed_seed_draws_with_the_next_one(studio, monkeypatch):
+    """The same prompt and the same seed would return the same picture."""
+    monkeypatch.setenv("ARK_IMAGE_SEED", "100")
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    assert {seed for _, seed in studio.image_calls} == {100}
+    assert studio.run("--resume", "story", "--replace", "--redo", "1-2") == 0
+    assert sorted(seed for _, seed in studio.image_calls) == [101, 101]
+    assert studio.run("--resume", "story", "--replace", "--redo", "1") == 0
+    assert [seed for _, seed in studio.image_calls] == [102]
+
+
+def test_redo_belongs_to_a_resume(studio):
+    with pytest.raises(SystemExit):
+        studio.run("--draft-name", "story", "--text", COPY, "--redo", "2")
+
+
+def test_redo_names_scenes_the_storyboard_has(studio):
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    with pytest.raises(RuntimeError, match="scenes 1 to 3"):
+        studio.run("--resume", "story", "--replace", "--redo", "4")
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("3,7", [3, 7]), ("3-5,9", [3, 4, 5, 9]), ("5-3", [3, 4, 5]), (" 2 ，4 ", [2, 4]), ("2,2", [2]),
+])
+def test_scene_numbers_are_read_the_way_people_write_them(text, expected):
+    assert acd.parse_scene_numbers(text, 10) == expected
+
+
+@pytest.mark.parametrize("text", ["0", "11", "x", "3-", ",", ""])
+def test_a_scene_number_that_is_not_one_is_refused(text):
+    with pytest.raises(RuntimeError, match="--redo"):
+        acd.parse_scene_numbers(text, 10)
