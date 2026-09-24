@@ -1635,3 +1635,78 @@ def test_the_plan_is_the_same_every_time():
     """A --resume rebuilds the draft; the camera must not change under it."""
     scenes = _shots("wide", "medium", "close", "medium", pauses={2})
     assert acd.plan_camera(scenes) == acd.plan_camera(scenes)
+
+
+# ----------------------------------------------------------- the title ramp --
+# The draft format stores a text's style as runs over character ranges;
+# pyJianYingDraft writes one, which is where "Jianying cannot colour inside a
+# text" came from. The title now ramps character by character.
+
+CRIMSON = acd.TITLE_PRESETS["crimson"]
+
+
+def test_a_blend_lands_exactly_on_both_ends():
+    assert acd.blend(CRIMSON.primary, CRIMSON.accent, 0.0) == CRIMSON.primary
+    assert acd.blend(CRIMSON.primary, CRIMSON.accent, 1.0) == CRIMSON.accent
+    assert acd._from_oklab(acd._oklab(CRIMSON.accent)) == pytest.approx(CRIMSON.accent, abs=1e-6)
+
+
+def test_the_ramp_runs_through_the_block_in_reading_order():
+    fills = acd.title_fills(["男人不能为女人", "做的3件事"], CRIMSON, ramp=True)
+    assert [len(row) for row in fills] == [7, 5]
+    flat = [fill for row in fills for fill in row]
+    assert flat[0] == pytest.approx(CRIMSON.primary, abs=1e-4)
+    assert flat[-1] == pytest.approx(CRIMSON.accent, abs=1e-4)
+    lightness = [acd._oklab(fill)[0] for fill in flat]
+    assert lightness == sorted(lightness, reverse=True), "warm white darkens steadily into crimson"
+
+
+def test_without_a_ramp_the_lines_are_two_flat_colours():
+    fills = acd.title_fills(["第一行", "第二行", "第三行"], CRIMSON, ramp=False)
+    assert fills == [[CRIMSON.primary] * 3, [CRIMSON.accent] * 3, [CRIMSON.accent] * 3]
+
+
+def test_equal_neighbours_share_one_run():
+    red, white = (1.0, 0.0, 0.0), (1.0, 1.0, 1.0)
+    assert acd.colour_runs([white, white, red, red, red, white]) == [(0, 2, white), (2, 5, red), (5, 6, white)]
+    single = acd.title_fills(["标题"], acd.TITLE_PRESETS["white"], ramp=True)[0]
+    assert len(acd.colour_runs(single)) == 1, "a one-colour colourway writes exactly what the library would"
+
+
+def test_a_split_run_keeps_everything_but_its_fill():
+    template = {"fill": {"alpha": 1.0, "content": {"render_type": "solid", "solid": {"alpha": 1.0, "color": [0, 0, 0]}}},
+                "range": [0, 3], "size": 19.5, "bold": True, "strokes": [{"width": 0.1}], "font": {"id": "f"}}
+    fills = [(1.0, 1.0, 1.0), (0.5, 0.5, 0.5), (0.0, 0.0, 0.0)]
+    content = acd.split_style_runs({"styles": [template], "text": "三个字"}, fills)
+    assert [style["range"] for style in content["styles"]] == [[0, 1], [1, 2], [2, 3]]
+    assert [style["fill"]["content"]["solid"]["color"] for style in content["styles"]] == [list(f) for f in fills]
+    for style in content["styles"]:
+        assert (style["size"], style["strokes"], style["font"]) == (19.5, [{"width": 0.1}], {"id": "f"})
+    assert template["fill"]["content"]["solid"]["color"] == [0, 0, 0], "the template itself is not mutated"
+
+
+def test_an_unknown_title_colour_mode_is_refused(monkeypatch, tmp_path):
+    with pytest.raises(RuntimeError, match="TITLE_COLOR_MODE"):
+        _director_env(monkeypatch, tmp_path, TITLE_COLOR_MODE="rainbow")
+
+
+def test_each_title_line_keeps_the_colour_it_reads_as():
+    """White over crimson at a glance, the colour running between them.
+
+    Spread evenly over the characters the ramp turned the end of the first
+    line pink; each line now stays nearer its own end of the ramp.
+    """
+    top, bottom = acd.title_fills(["男人不能为女人", "做的3件事"], CRIMSON, ramp=True)
+    near = acd._oklab(CRIMSON.primary)[0], acd._oklab(CRIMSON.accent)[0]
+    for fill in top:
+        lightness = acd._oklab(fill)[0]
+        assert abs(lightness - near[0]) < abs(lightness - near[1]), f"{fill} in the first line reads as the accent"
+    for fill in bottom:
+        lightness = acd._oklab(fill)[0]
+        assert abs(lightness - near[1]) < abs(lightness - near[0]), f"{fill} in the last line reads as the primary"
+
+
+def test_a_one_line_title_ramps_across_itself():
+    (row,) = acd.title_fills(["认知觉醒"], CRIMSON, ramp=True)
+    assert row[0] == pytest.approx(CRIMSON.primary, abs=1e-4)
+    assert row[-1] == pytest.approx(CRIMSON.accent, abs=1e-4)
