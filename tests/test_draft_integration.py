@@ -19,6 +19,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import animated_caption_draft as acd  # noqa: E402
+from daodaoshou.layout import _oklab  # noqa: E402
 
 pytest.importorskip("PIL", reason="Pillow is required to synthesise test images")
 pytest.importorskip("pymediainfo", reason="pyJianYingDraft needs pymediainfo to probe media")
@@ -215,6 +216,22 @@ def test_every_shot_has_camera_movement(draft):
         assert properties, "a shot with no keyframes would be a frozen still"
 
 
+def test_the_camera_steps_back_where_a_paragraph_ends(draft):
+    """Scene 2 ends a paragraph and scene 5 ends the video: both pull out."""
+    _, _, tracks = draft
+
+    def scale(segment):
+        return [kf["values"][0] for group in segment["common_keyframes"]
+                if group["property_type"] == "KFTypeScaleX" for kf in group["keyframe_list"]]
+
+    shots = _sorted_segments(tracks["visuals"])
+    for index in (1, 4):
+        start, end = scale(shots[index])[0], scale(shots[index])[-1]
+        assert end < start, f"shot {index + 1} should pull out, scale {start} -> {end}"
+    # Scene 3 is the fixture's wide shot: it reveals the place, never closes in.
+    assert scale(shots[2])[-1] <= scale(shots[2])[0]
+
+
 def test_pans_never_start_at_full_frame(draft):
     """A pan at scale 1.0 exposes the edge of the image."""
     _, _, tracks = draft
@@ -267,8 +284,13 @@ def _fill(text_content):
     return text_content["styles"][0]["fill"]["content"]["solid"]["color"]
 
 
+def _title_contents(content):
+    materials = {item["id"]: item for item in content["materials"]["texts"]}
+    return [json.loads(materials[s["material_id"]]["content"]) for s in _title_segments(content)]
+
+
 def test_the_title_is_one_segment_per_line(draft):
-    """Two lines, because Jianying colours a segment as a whole."""
+    """Two lines, because a segment per line is what sets the measured pitch."""
     _, content, _ = draft
     segments = _title_segments(content)
     assert len(segments) == 2
@@ -283,15 +305,60 @@ def test_the_title_block_is_centred_and_the_lines_do_not_overlap(draft):
     assert pitch == pytest.approx(182, abs=3)
 
 
-def test_the_title_lines_carry_the_two_colours_of_the_style(draft):
+def test_the_title_ramps_from_the_first_colour_to_the_second(draft):
+    """The reference runs warm white into crimson across the block, and now so does this."""
     cfg, content, _ = draft
     colours = acd.TITLE_PRESETS[cfg.title_style]
-    materials = {item["id"]: item for item in content["materials"]["texts"]}
-    first, second = (json.loads(materials[s["material_id"]]["content"])
-                     for s in _title_segments(content))
+    assert cfg.title_ramp, "the default colourway ramps"
+    lines = _title_contents(content)
+    runs = [style for line in lines for style in line["styles"]]
+    fills = [style["fill"]["content"]["solid"]["color"] for style in runs]
+    assert fills[0] == pytest.approx(list(colours.primary), abs=1e-3)
+    assert fills[-1] == pytest.approx(list(colours.accent), abs=1e-3)
+    assert len(runs) > len(lines), "a ramp is more than one colour per line"
+    # Each line is covered once, in order, character by character.
+    for line in lines:
+        ranges = [style["range"] for style in line["styles"]]
+        assert ranges[0][0] == 0 and ranges[-1][1] == len(line["text"])
+        assert all(a[1] == b[0] for a, b in zip(ranges, ranges[1:], strict=False))
+    # And it only ever moves one way, from the primary towards the accent.
+    lightness = [_oklab(tuple(fill))[0] for fill in fills]
+    assert all(a >= b - 1e-6 for a, b in zip(lightness, lightness[1:], strict=False))
+
+
+def test_every_run_of_the_title_keeps_its_typeface_and_outline(draft):
+    """Only the fill changes along the ramp; a title is still one set of type."""
+    _, content, _ = draft
+    for line in _title_contents(content):
+        first = {key: value for key, value in line["styles"][0].items() if key not in {"range", "fill"}}
+        assert first.get("font") and first.get("strokes"), "the font and the stroke must survive the split"
+        for style in line["styles"][1:]:
+            assert {key: value for key, value in style.items() if key not in {"range", "fill"}} == first
+
+
+def test_a_title_can_keep_one_colour_per_line(workspace, monkeypatch):
+    """TITLE_COLOR_MODE=lines is the old two-tone title, exactly."""
+    assets, _ = workspace
+    monkeypatch.setenv("TITLE_COLOR_MODE", "lines")
+    cfg = acd.Config.load()
+    path = acd.build_draft(cfg, _scenes(assets), "pytest_lines", replace=True,
+                           title="男人不能为女人做的3件事", opening_sound=cfg.opening_sound_path)
+    content = json.loads((path / "draft_content.json").read_text(encoding="utf-8"))
+    colours = acd.TITLE_PRESETS[cfg.title_style]
+    first, second = _title_contents(content)
+    assert len(first["styles"]) == len(second["styles"]) == 1
     assert _fill(first) == pytest.approx(list(colours.primary), abs=1e-3)
     assert _fill(second) == pytest.approx(list(colours.accent), abs=1e-3)
-    assert _fill(first) != _fill(second), "the reference title is not one flat colour"
+
+
+def test_two_inks_never_blend(monkeypatch, workspace):
+    """A risograph's two drums, a marker and a pen, ink and a seal: two flat colours."""
+    for colourway in ("poster", "marker", "ink"):
+        monkeypatch.setenv("TITLE_STYLE", colourway)
+        assert not acd.Config.load().title_ramp, colourway
+    monkeypatch.setenv("TITLE_STYLE", "poster")
+    monkeypatch.setenv("TITLE_COLOR_MODE", "ramp")
+    assert acd.Config.load().title_ramp, "the setting still wins over the colourway"
 
 
 def test_text_layers_are_animated(draft):

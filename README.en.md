@@ -32,13 +32,13 @@ copy by hand; set `JIAN_YING_DRAFT_DIR` only if that lookup fails. Then:
 python animated_caption_draft.py --check-config
 ```
 
-If that passes, make a video:
+Every problem is listed at once (no drafts folder, no key, no voice… numbered), rather than one per run. If it passes, make a video:
 
 ```powershell
 python animated_caption_draft.py --draft-name my_story --title "Example title" --input copy.txt
 ```
 
-Open Jianying and `my_story` is waiting in the draft list.
+Open Jianying and `my_story` is waiting in the draft list. The run ends on a summary: scenes, paragraphs and length; how many lines were read and frames drawn this run, how many were reused and roughly what they cost; the music chosen, and the style and title colouring used — written to `run.log` as well.
 
 ---
 
@@ -62,7 +62,7 @@ Read README.en.md and .env.example, install the dependencies, and run --check-co
 **Review the storyboard before generating images**
 
 ```text
-Read copy.txt and prepare a midnight-style storyboard for “Why being busy makes us anxious”. Run --plan-only, review the subject, framing, and character consistency of every shot, and tell me how many images the full run would generate. Do not generate media yet.
+Read copy.txt and prepare a midnight-style storyboard for “Why being busy makes us anxious”, with the draft name anxiety_story. Run --plan-only, review the subject, framing, and character consistency of every shot, and tell me how many images the full run would generate. Do not generate media yet. Once I approve, make it with --resume anxiety_story from that storyboard instead of planning again.
 ```
 
 **Build an editable Jianying draft**
@@ -74,12 +74,18 @@ Use copy.txt with the title “Busy Is Not What Breaks You” and create a Jiany
 **Change the look or repair a shot**
 
 ```text
-Inspect the existing output/anxiety_story run. Switch it to the noir preset, or repair only the shots with unsuitable artwork. Reuse narration and successful assets wherever possible, and tell me which actions will trigger new image-generation charges.
+Inspect the existing output/anxiety_story run. Switch it to the noir preset (which redraws every frame), or redraw only the shots with unsuitable artwork using --redo. Reuse narration and successful assets wherever possible, and tell me how many frames will be redrawn before spending anything.
 ```
 
 > Cost note: `--check-config` makes no API calls; `--plan-only` still calls the
 > text model; a full run uses text, TTS and image APIs. Agent Plan is not a free
 > image allowance, so check current pricing and balance in the Ark console.
+> Once the storyboard exists, and before any narration or picture is paid for,
+> the run prints the **exact** number of frames it will draw and reuse (with a
+> price when `ARK_IMAGE_CNY_PER_IMAGE` is set); `--plan-only` ends on the same
+> line. For unattended runs, set `MAX_IMAGES`: over it, the run stops before
+> spending, with the storyboard saved — raise the cap or trim the storyboard,
+> then `--resume`.
 
 ---
 
@@ -112,11 +118,13 @@ This is what separates it from a batch image slideshow.
 | **Composed for a general audience** | At most one symbolic element per frame and it has to live in the room — a silhouette in a doorway reads, a row of floating icons does not; no collages or split screens |
 | **Consistent art direction** | One style prompt for the whole video: nine presets (see `styles.json`, editable and extensible), or write your own |
 | **A style brings its own fittings** | Switching style also switches what the storyboard director is told it is drawing, the whole-video filter, and the title colourway — no more picking film noir and getting a director who still writes flat comic panels |
-| **Measured title typography** | The title block is centred, broken onto two or three lines and coloured line by line, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
+| **Measured title typography** | The title block is centred and broken onto two or three lines, its colour running character by character from warm white into crimson, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
 | **Consistent cast** | The storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds |
+| **An anchor frame (optional)** | `IMAGE_REFERENCE=anchor`: one frame is drawn first and every other frame is drawn with it as a reference, so faces and palette are held by a picture, not only by words; experimental, off by default |
 | **Varied framing** | Wide / medium / close chosen per line — wide to open a section and establish a place, close for a feeling, a turn or a conclusion |
-| **One image, one whole shot** | `01.png` runs to its end and `02.png` follows; an image is never cut into two segments |
-| **Constant camera speed** | Five camera moves cycle per scene, and how far each travels is derived from the shot's length, so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan stays inside the headroom the scale provides and never exposes the frame edge |
+| **One image, one whole shot** | Picture 1 runs to its end and picture 2 follows; an image is never cut into two segments |
+| **The camera follows the shot** | A close-up pushes in; a medium shot pushes in with a drift; a wide shot pulls out or pans so the place reveals itself; the last shot of a paragraph (and of the video) pulls out, stepping back into the beat that follows. Each framing takes its moves in turn and no two shots in a row move the same way. The moves used to rotate in order, so a pull-out could land on the close-up a paragraph builds to |
+| **Constant camera speed** | How far each move travels is derived from the shot's length, so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan stays inside the headroom the scale provides and never exposes the frame edge |
 | **Room to breathe** | A beat of BGM only after each paragraph (the outgoing picture holds through it); the video ends on the last subtitle, with no dead air after it |
 | **Music matched to the copy** | One bed picked from the library by the mood label on each filename, matched to how the director read the script; nothing found means no music |
 | **Ducked music** | 0.056 under speech, lifted to 0.10 in the gaps — and not lifted at all where the gap is too short, so it never pumps between sentences |
@@ -205,7 +213,7 @@ Notes:
   a `"default"` pointing at a key that does not exist, a preset with no `prompt`) **fails loudly with
   the location**, never falls back silently
 - The built-ins also live in code (`STYLE_PRESETS` in
-  [`animated_caption_draft.py`](animated_caption_draft.py)); same-named presets in `styles.json`
+  [`daodaoshou/styles.py`](daodaoshou/styles.py)); same-named presets in `styles.json`
   override them, so **upgrading the code will not overwrite your edits**
 - `ARK_IMAGE_SEED` in [.env.example](.env.example) fixes the seed for a steadier look and reproducible reruns
 - The style prompt is appended after each scene description by `compose_image_prompt()` — if the
@@ -213,6 +221,25 @@ Notes:
   style will not fix a bad storyboard
 - `--check-config` prints the active style, its `medium`, where it was loaded from, and the resolved
   filter and title settings
+
+### Matching every frame to one (experimental, off by default)
+
+`IMAGE_REFERENCE=anchor` draws one frame first, on its own — the first shot to show the recurring
+cast, or the first shot if there is none — and sends every other frame with a copy of it, shrunk to a
+1280-wide JPEG, as a reference image (the images API's `image` field). The prompt says what the
+reference is for: **only the drawing style, the palette and the recurring people's faces, hair and
+clothes — not its composition, framing, subject or setting**. Without that line a reference reads as
+"draw this again", and every panel comes back as the same room.
+
+Why it is worth trying: by default the cast and the look are held together by words alone — the same
+character description and style prompt in every request — with a light grade over whatever drift gets
+through. A picture holds a face and a palette far better than a sentence does.
+
+Why it is off: it is only as good as the model's and the plan's support for reference images, and it
+has not been measured against the reference video the way everything else here has. An endpoint that
+rejects it fails with a message naming this setting (a rejected request is not billed); set it back to
+`off` and `--resume`. Check the console for whether a reference changes the price. It applies to
+frames drawn from then on — frames already drawn are not redrawn because it changed.
 
 ---
 
@@ -376,11 +403,25 @@ when the title was drawn but never spoken.
 
 Two things work differently from before and are worth spelling out.
 
-**The title is one text layer per line.** The reference title ramps from warm white to crimson, and
-Jianying cannot colour part of a text segment, so each line becomes its own segment on its own text
-track: the first line takes the primary colour, the rest take the accent. That also puts the line
-pitch under our control — 0.95 em is tighter than any text default, and without it the two halves
-stop reading as one block.
+**The title is one text layer per line, and its colour runs character by character.** Each line is
+its own segment on its own text track, which puts the line pitch under our control — 0.95 em is
+tighter than any text default, and without it the two halves stop reading as one block.
+
+The reference title ramps from warm white to crimson. This used to say Jianying cannot colour part of
+a text, so the first line took the primary and the rest the accent. That limit is pyJianYingDraft's,
+not the draft format's: a text's style is already a list of runs over character ranges, and the
+library writes one. Now every character gets its own fill, from the primary at the first character to
+the accent at the last, with the font, stroke and shadow unchanged — only the colour moves.
+
+The ramp runs in reading order, but each line keeps the colour it reads as — the first warm white,
+the last crimson — and drifts part of the way towards its neighbour. Spread evenly over every
+character, compared on the rendered title, it turned the end of the first line pink and took the
+punch out of the crimson. Colours are mixed in the perceptual OKLab space, so every character moves
+the same visible distance.
+
+`TITLE_COLOR_MODE=lines` brings back one colour per line. The `poster`, `marker` and `ink` colourways
+default to it: a risograph's two drums, a marker and a red pen, ink and a seal never blend on the real
+thing.
 
 **The break point is chosen here, not by auto-wrap.** Where a title breaks decides the shape of the
 whole opening frame, and auto-wrap picks it purely on width. Two Chinese line-breaking rules are
@@ -414,7 +455,7 @@ Short copy inline:
 python animated_caption_draft.py --draft-name demo --title "Example title" --text "Copy goes here."
 ```
 
-Inspect the storyboard without generating media (this still calls the text model):
+Inspect the storyboard without generating media (this still calls the text model). It needs only the text model's key — no Jianying install, voice or opening cue; if `output/<draft-name>/` already holds a storyboard, add `--replace` to plan it afresh:
 
 ```powershell
 python animated_caption_draft.py --draft-name preview --input copy.txt --plan-only
@@ -422,15 +463,49 @@ python animated_caption_draft.py --draft-name preview --input copy.txt --plan-on
 
 The output shows how each line was split, its framing, which lines end a paragraph, and the cast that was extracted. **Start here when the pictures are wrong** — the style prompt is appended after the scene description, so if the description itself went astray, changing the preset will not help.
 
+### Review the storyboard, edit it, then make the video
+
+The storyboard `--plan-only` makes is saved in `output/<draft-name>/manifest.json`. Once you have
+reviewed it, carry on with `--resume`, and **the video is made from the storyboard you reviewed** —
+nothing is planned again, and the storyboard is not paid for twice:
+
+```powershell
+python animated_caption_draft.py --draft-name my_story --input copy.txt --plan-only
+# read the output; if needed, edit a scene's text / subject / image_prompt /
+# shot_size / pause_after directly in output/my_story/manifest.json
+python animated_caption_draft.py --resume my_story
+```
+
+Running the command again from scratch instead (without `--resume`) plans a new storyboard — the
+model splits the copy differently every time, so what you reviewed would not be what gets made.
+
+The same works after the video is made: edit a scene's `image_prompt` and `--resume`, and only that
+frame is redrawn; edit its `text`, and only that line is re-read (see [Resuming](#resuming)).
+
+### Redraw only some frames: `--redo`
+
+When the prompt is fine and a frame simply came out badly, nothing needs editing:
+
+```powershell
+python animated_caption_draft.py --resume my_story --redo 3,7 --replace
+```
+
+`--redo` takes `3,7` or `3-5`, redraws only those frames and reuses all the narration and every other
+frame. Each redraw is a new take: the new frame is a new file and **the previous one stays on disk** —
+set `take` back in the manifest to return to it. With `ARK_IMAGE_SEED` set, each take moves the seed on
+by one; the same prompt with the same seed only draws the same picture again. As with any resume, a
+draft already in Jianying needs `--replace`.
+
 | Flag | Purpose |
 | --- | --- |
 | `--input` / `--text` | Where the copy comes from; pick one |
 | `--draft-name` | Draft name in Jianying; defaults to a timestamp |
 | `--title` | Title card; defaults to the first line of the copy |
-| `--resume DRAFT_NAME` | Continue a run, reusing assets that already succeeded |
+| `--resume DRAFT_NAME` | Continue a run, reusing assets that already succeeded; also makes a reviewed storyboard |
+| `--redo 3,7` | With `--resume`: redraw only these scenes' frames (a new take; the previous one is kept) |
 | `--replace` | Allow overwriting an existing draft (**deletes the whole draft folder**) |
-| `--check-config` | Validate configuration and assets without calling any API |
-| `--plan-only` | Generate and print the storyboard only |
+| `--check-config` | Validate configuration and assets without calling any API; every problem is listed at once |
+| `--plan-only` | Generate and print the storyboard only; needs only the text model's key |
 | `--speed X` | Global video speed; overrides `VIDEO_SPEED` in `.env` |
 | `--verbose` | Print a full traceback on failure |
 
@@ -567,7 +642,7 @@ to compete with the line that follows the gap it fills.
 [narration] one segment per line, separated only by the paragraph beats
 [captions] aligned to the narration, with an intro animation; silent in the beats
 [title]    first 2.4s at 1.0x, scaled by VIDEO_SPEED; one text track per line
-           (title_overlay, title_overlay_2, ...), coloured line by line
+           (title_overlay, title_overlay_2, ...), colour ramping character by character
 [SFX]      once, at the open
 [BGM]      picked from the library by mood; 0.056 under speech, 0.10 in the
            gaps; looped, faded at both ends
@@ -575,6 +650,8 @@ to compete with the line that follows the gap it fills.
 ```
 
 Beats appear only after lines the storyboard model marks as **ending a paragraph** — eight paragraphs give you seven places to breathe, not a stop after every sentence.
+
+**A paragraph is a blank line in your copy.** The director sees them and is told that a blank line ends a paragraph; when long copy is sent in parts and a part is cut at a blank line, that part's last scene is marked as a paragraph end directly. Every run of newlines used to be collapsed into one before the director saw the copy, so the five paragraphs of the bundled `copy.txt` arrived as a single block and the breaths were a guess. Copy without blank lines is still judged by meaning.
 
 ---
 
@@ -608,9 +685,13 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `SUBTITLE_STYLE` | `plate` | `plate` white on a dark plate / `outline` white with a stroke / `box` the old style |
 | `SUBTITLE_FONT` | `SourceHanSansCN_Medium` | Caption font; any Jianying font name |
 | `TITLE_STYLE` | empty = follows the style | `crimson` / `paper` / `ink` / `white` / `gold` / `poster` / `electric` / `marker` |
+| `TITLE_COLOR_MODE` | empty = follows the colourway | `ramp` runs from the primary to the accent character by character / `lines` first line primary, the rest accent |
 | `TITLE_FONT` | `优设标题黑` | Title font |
 | `TITLE_SIZE` / `TITLE_Y` | `19.5` / `0` | Title size and position; defaults match the reference video |
 | `IMAGE_CONCURRENCY` | `3` | Image workers; lower it on HTTP 429 |
+| `ARK_IMAGE_CNY_PER_IMAGE` | empty | Price per image (CNY), used only for the estimate the terminal prints |
+| `MAX_IMAGES` | empty = no cap | Most frames one run may draw; over it the run stops before narration and images (the storyboard is kept) |
+| `IMAGE_REFERENCE` | `off` | `anchor` draws one frame first and sends it with every other frame as a reference (experimental; see [Matching every frame to one](#matching-every-frame-to-one-experimental-off-by-default)) |
 
 ### Layout coordinate units
 
@@ -632,11 +713,11 @@ Every run keeps its full state under:
 
 ```text
 output/<draft-name>/
-  manifest.json    scenes, cast, asset paths
+  manifest.json    scenes, cast, asset paths, the speed, voice and style used
   failures.json    what went wrong
   run.log          per-event log
-  audio/           01.mp3, 02.mp3 ...
-  images/          01.png, 02.png ...
+  audio/           01_3fa9c2e1d0.mp3, 02_…  (scene number + a digest of its inputs)
+  images/          01_b41f09aa2c.png, 02_…
 ```
 
 Assets that already succeeded are reused; only what is missing is retried:
@@ -645,9 +726,36 @@ Assets that already succeeded are reused; only what is missing is retried:
 python animated_caption_draft.py --resume my_story
 ```
 
-The one exception is a change of speed. `manifest.json` records what the
-narration on disk was read at, and resuming at a different one re-reads the
-voice and keeps every image — see [Speed](#speed).
+**Every file is named after what made it.** The digest after the scene number
+covers everything that decides the file's content — for a clip: the text, the
+voice, the speech rate and loudness; for a frame: `image_prompt`, `subject`,
+the shot size, the cast descriptions, the style, the model, size and seed.
+A file is reused only when all of that still matches, so:
+
+| You changed | What happens on the next run |
+| --- | --- |
+| Nothing (`--resume` after a failure) | Everything that finished is reused; only the rest is made |
+| The speed | Narration is re-read at the new speed; every image is kept |
+| `ARK_TTS_VOICE_TYPE` | Every line and the title are re-read in the new voice |
+| `IMAGE_STYLE_PRESET` / `IMAGE_STYLE_PROMPT` | Every frame is redrawn in the new style (billed); narration is kept |
+| One scene's `image_prompt` in `manifest.json` | Only that frame is redrawn |
+| One scene's `text` in `manifest.json` | Only that line is re-read; its picture is kept |
+| The same `--draft-name` for a fresh run | Only files whose inputs are identical are reused; nothing is taken on its number alone |
+
+Before spending anything the run says what it is making again and why, e.g.
+`3 frame(s) will be drawn again: the style changed (midnight -> noir).`
+
+This is what stops a re-run from quietly reusing the wrong file. Files used to
+be called `01.mp3` and picked up by that number alone: re-running the same
+command after a failure re-splits the copy, and every subtitle ended up over a
+clip reading a different sentence; changing the style and resuming kept the old
+frames under the new style's grade and title. Both reported success.
+
+A run from an older version (manifest before v9, files named `01.mp3`) is
+trusted once when it is resumed, the way it always was, and its files are
+renamed to their keys. A crashed run's finished files are picked up too —
+every file is written to a temporary name and renamed only when complete, so a
+half-written file never sits under a valid name.
 
 > **Overwriting an existing draft requires `--replace`, including with `--resume`.** Overwriting deletes the whole draft folder, so any edits you made in Jianying go with it. Close the draft in Jianying first.
 
@@ -661,6 +769,22 @@ python -m pytest
 python -m ruff check .
 ```
 
+
+The code lives in the `daodaoshou/` package, one module per job; `animated_caption_draft.py` is only
+the command (it re-exports the package's names, so `import animated_caption_draft` still works):
+
+| Module | What it does |
+| --- | --- |
+| `config.py` | Every setting, parsed once with every problem reported at once; the global speed |
+| `storyboard.py` | The director: splitting the copy, subjects, framing, paragraphs, mood |
+| `images.py` / `tts.py` | Pictures (including the anchor frame) / narration |
+| `assets.py` | Files named after their inputs, and what a run may reuse |
+| `draft.py` | The Jianying draft: timeline, captions, title, camera, music, grade |
+| `styles.py` / `layout.py` / `camera.py` | Looks and composition / caption and title type and colour / camera moves |
+| `bgm.py` / `title.py` / `jianying.py` | The music library and ducking / the opening title / finding the drafts folder |
+| `state.py` / `report.py` / `net.py` / `env.py` | Manifest and log / terminal output / HTTP with retries / `.env` |
+| `cli.py` | The command: one run from copy to draft |
+
 The suite covers every piece of logic that does not call a paid API:
 
 - Layout coordinate conversion and safe-area clamping
@@ -672,7 +796,9 @@ The suite covers every piece of logic that does not call a paid API:
 - BGM looping, head/tail fades, and the ducking envelope (including "do not lift when the gap is too short")
 - Caption wrap estimation and baseline compensation
 - Title line breaking: the reference title's real break point, the particle rules, digit runs kept whole, explicit newlines, the line ceiling
-- The stacked title: block centring, line pitch, per-line colour, and shrinking rather than wrapping when it is too long
+- The stacked title: block centring, line pitch, and shrinking rather than wrapping when it is too long
+- The anchor frame: drawn first and alone, every other frame sent with a shrunk copy and the note on what it is for, nothing drawn against a failed anchor, and a refusing endpoint naming the setting
+- The title ramp: primary at the first character, accent at the last, each line holding its own end, every split run keeping the font, stroke and shadow, and `lines` mode and the two-ink colourways staying flat
 - The frame's subject: it reaches the prompt, it falls back when absent, the element budget and subject size track the framing, and neither end may ask for a collage
 - What the director is held to: naming a drawable thing, no symbol piles, and the same element budget the picture is drawn to
 - The default style paints the subject and draws the room, and the old "single-colour, no filled colour areas" clauses are gone rather than contradicted
@@ -681,6 +807,7 @@ The suite covers every piece of logic that does not call a paid API:
 - Style completeness: nine presets each carrying `medium` / `avoid` / `grade` / `title`, and the backward-compatible string form
 - Storyboard JSON tolerance, framing and paragraph-mark parsing
 - One integration test that builds a real draft from synthetic media and asserts against the parsed `draft_content.json`
+- Whole runs of the command with the paid services faked: a re-run after a failure never narrates one line under another; a new style, voice or speed redoes exactly what depends on it; an unchanged resume pays for nothing; an older run's files are trusted once and renamed
 
 ---
 
@@ -689,7 +816,7 @@ The suite covers every piece of logic that does not call a paid API:
 | Symptom | Fix |
 | --- | --- |
 | HTTP 429 | Lower `IMAGE_CONCURRENCY`. Errors carry the API's response body, so rate limiting and an empty balance are distinguishable |
-| SSL EOF / dropped connection | Retry later with `--resume`; drop to one worker if needed |
+| SSL EOF / dropped connection | Retry later with `--resume`; drop to one worker if needed. An image request cut off after the server may already have taken it is **not resent automatically** — a second attempt could bill the same frame twice; `--resume` draws only the missing ones |
 | `Network request failed after 3 attempts` at the storyboard | The old symptom of a model still thinking while the connection timed out. Thinking is now off and the call streams; if it persists, set `DEEPSEEK_API_KEY` |
 | Opening sound effect not found | Check `OPENING_SOUND_PATH` points at an existing MP3 or WAV |
 | Jianying folder not found | Only needed when the lookup fails: 全局设置 → 草稿位置 in Jianying shows the path to put in `JIAN_YING_DRAFT_DIR` |
