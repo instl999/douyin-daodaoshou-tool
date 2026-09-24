@@ -576,6 +576,8 @@ to compete with the line that follows the gap it fills.
 
 Beats appear only after lines the storyboard model marks as **ending a paragraph** — eight paragraphs give you seven places to breathe, not a stop after every sentence.
 
+**A paragraph is a blank line in your copy.** The director sees them and is told that a blank line ends a paragraph; when long copy is sent in parts and a part is cut at a blank line, that part's last scene is marked as a paragraph end directly. Every run of newlines used to be collapsed into one before the director saw the copy, so the five paragraphs of the bundled `copy.txt` arrived as a single block and the breaths were a guess. Copy without blank lines is still judged by meaning.
+
 ---
 
 ## Configuration
