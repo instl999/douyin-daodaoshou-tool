@@ -71,6 +71,7 @@ python animated_caption_draft.py --draft-name my_story --title "示例标题" --
 ```
 
 > 费用提醒：`--check-config` 不调用 API；`--plan-only` 仍会调用文本模型；完整生成会调用文本、TTS 和生图服务。Agent Plan 不是免费额度，运行前请在火山方舟控制台确认当前价格与余额。
+> 分镜一出来、配音和生图开始之前，终端会打印这一次**确切**要画几张、复用几张（填了 `ARK_IMAGE_CNY_PER_IMAGE` 还会给出金额）；`--plan-only` 结尾也会打印同一行。无人值守时可以设 `MAX_IMAGES`：超过就在花钱之前停下，分镜照样保存，调高上限或删减分镜后 `--resume` 即可。
 
 ---
 
@@ -618,6 +619,8 @@ python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 
 | `TITLE_FONT` | `优设标题黑` | 标题字体 |
 | `TITLE_SIZE` / `TITLE_Y` | `19.5` / `0` | 标题字号与位置，默认与参考视频一致 |
 | `IMAGE_CONCURRENCY` | `3` | 生图并发，遇到 429 就调小 |
+| `ARK_IMAGE_CNY_PER_IMAGE` | 空 | 单张价格（元），只用于终端里的金额估算 |
+| `MAX_IMAGES` | 空 = 不设上限 | 一次运行最多画几张；超过就在配音和生图之前停下（分镜已保存） |
 | `IMAGE_REFERENCE` | `off` | `anchor` = 先画锚点、其余每张带着它当参考图（实验性，见[参考图锚定](#参考图锚定实验性默认关闭)） |
 
 ### 布局坐标的单位

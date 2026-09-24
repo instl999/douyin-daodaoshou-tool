@@ -468,3 +468,39 @@ def test_scene_numbers_are_read_the_way_people_write_them(text, expected):
 def test_a_scene_number_that_is_not_one_is_refused(text):
     with pytest.raises(RuntimeError, match="--redo"):
         acd.parse_scene_numbers(text, 10)
+
+
+# ------------------------------------------------------------ the bill ----
+
+def test_the_exact_number_of_frames_is_said_before_anything_is_paid_for(studio, monkeypatch, capsys):
+    monkeypatch.setenv("ARK_IMAGE_CNY_PER_IMAGE", "0.25")
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    assert "Images: 3 to draw, 0 reused - about CNY 0.75" in capsys.readouterr().out
+    assert studio.run("--resume", "story", "--replace", "--redo", "2") == 0
+    assert "Images: 1 to draw, 2 reused - about CNY 0.25" in capsys.readouterr().out
+
+
+def test_a_run_over_max_images_stops_before_paying_for_media(studio, monkeypatch):
+    monkeypatch.setenv("MAX_IMAGES", "2")
+    with pytest.raises(RuntimeError, match="MAX_IMAGES is 2"):
+        studio.run("--draft-name", "story", "--text", COPY)
+    assert studio.tts_calls == [] and studio.image_calls == [], "nothing but the storyboard may be spent"
+
+    monkeypatch.setenv("MAX_IMAGES", "3")
+    assert studio.run("--resume", "story") == 0, "the saved storyboard carries on once the cap allows it"
+    assert len(studio.image_calls) == 3
+
+
+def test_the_cap_counts_only_what_a_run_will_draw(studio, monkeypatch):
+    assert studio.run("--draft-name", "story", "--text", COPY) == 0
+    monkeypatch.setenv("MAX_IMAGES", "1")
+    assert studio.run("--resume", "story", "--replace", "--redo", "3") == 0
+
+
+def test_a_plan_says_what_making_it_would_cost(studio, monkeypatch, capsys):
+    monkeypatch.setenv("ARK_IMAGE_CNY_PER_IMAGE", "0.25")
+    monkeypatch.setenv("MAX_IMAGES", "2")
+    assert studio.run("--draft-name", "plan", "--text", COPY, "--plan-only") == 0
+    out = capsys.readouterr().out
+    assert "Plan: 3 scene(s). Images: 3 to draw, 0 reused - about CNY 0.75" in out
+    assert "over MAX_IMAGES=2" in out

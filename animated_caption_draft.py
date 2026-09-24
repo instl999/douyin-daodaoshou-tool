@@ -1591,6 +1591,8 @@ class Config:
     ark_image_output_format: str
     ark_image_seed: int | None
     ark_image_cny_per_image: float | None
+    # A ceiling on the frames one run may draw; None for no ceiling.
+    max_images: int | None
     image_concurrency: int
     image_style_prompt: str
     # "anchor" draws one frame first and sends a copy with every other frame.
@@ -1766,6 +1768,11 @@ class Config:
             ark_image_cny_per_image=(
                 bounded_float("ARK_IMAGE_CNY_PER_IMAGE", 0.0, 0.0, 1000.0) if price_raw else None
             ),
+            # For a run nobody is watching - an agent's, say - where the first
+            # sign of a storyboard that split into sixty scenes would otherwise
+            # be the bill. Checked once the storyboard exists and before any
+            # narration or picture is paid for.
+            max_images=positive_int("MAX_IMAGES", 1, minimum=1) if os.getenv("MAX_IMAGES", "").strip() else None,
             image_concurrency=bounded_int(
                 "IMAGE_CONCURRENCY", DEFAULT_IMAGE_CONCURRENCY, 1, MAX_IMAGE_CONCURRENCY
             ),
@@ -2670,6 +2677,30 @@ def print_image_cost_estimate(cfg: Config, minimum_images: int, maximum_images: 
         "image API only, TTS and storyboard-text-model costs excluded)",
         flush=True,
     )
+
+
+def describe_image_budget(cfg: Config, to_draw: int, reused: int) -> str:
+    """The exact number of frames a run is about to pay for, and their price if known."""
+    line = f"Images: {to_draw} to draw, {reused} reused"
+    if to_draw and cfg.ark_image_cny_per_image is not None:
+        line += (f" - about CNY {to_draw * cfg.ark_image_cny_per_image:.2f} "
+                 f"(CNY {cfg.ark_image_cny_per_image:.2f} each on {cfg.ark_image_model}; pictures only)")
+    elif to_draw:
+        line += f" on {cfg.ark_image_model} (set ARK_IMAGE_CNY_PER_IMAGE for a price)"
+    if cfg.max_images is not None:
+        line += f"; MAX_IMAGES={cfg.max_images}"
+    return line + "."
+
+
+def frames_to_draw(cfg: Config, scenes: list[Scene], characters: list[Character],
+                   image_dir: Path, legacy: bool) -> int:
+    """How many frames a run of this storyboard would draw, found without touching a file."""
+    def drawn(index: int, scene: Scene) -> bool:
+        if _usable(keyed_path(image_dir, index, picture_key(cfg, scene, characters), ".png")):
+            return True
+        recorded = Path(scene.image_path) if scene.image_path else None
+        return legacy and _usable(recorded) and bool(_LEGACY_ASSET_NAME.fullmatch(recorded.stem))
+    return sum(not drawn(index, scene) for index, scene in enumerate(scenes, 1))
 
 
 # -------------------------------------------------------------------- tts ----
@@ -3797,6 +3828,12 @@ def main(argv: list[str] | None = None) -> int:
              "scenes": [asdict(scene) for scene in scenes]},
             ensure_ascii=False, indent=2,
         ))
+        # The number the review is for: what making this storyboard would cost.
+        legacy = bool(args.resume) and int((previous or {}).get("version", 0)) < MANIFEST_VERSION
+        to_draw = frames_to_draw(cfg, scenes, characters, asset_root / "images", legacy)
+        print(f"Plan: {len(scenes)} scene(s). " + describe_image_budget(cfg, to_draw, len(scenes) - to_draw)
+              + (f" A run would stop before drawing: that is over MAX_IMAGES={cfg.max_images}."
+                 if cfg.max_images is not None and to_draw > cfg.max_images else ""))
         return 0
 
     audio_dir, image_dir = asset_root / "audio", asset_root / "images"
@@ -3820,6 +3857,19 @@ def main(argv: list[str] | None = None) -> int:
         print(line)
     save("reconciled")
     append_run_log(asset_root, "assets_reconciled", **asdict(found))
+
+    # The exact bill, now that the storyboard exists, and before any of it is
+    # run up. The estimate printed before planning is a range; this is not.
+    to_draw = sum(1 for scene in scenes if not scene.image_path)
+    print(describe_image_budget(cfg, to_draw, len(scenes) - to_draw), flush=True)
+    append_run_log(asset_root, "images_planned", to_draw=to_draw, reused=len(scenes) - to_draw)
+    if cfg.max_images is not None and to_draw > cfg.max_images:
+        raise RuntimeError(
+            f"Stopped before any narration or picture was paid for: this run would draw {to_draw} "
+            f"images and MAX_IMAGES is {cfg.max_images}. The storyboard is saved in "
+            f"output/{draft_name}/manifest.json - raise MAX_IMAGES, or shorten the storyboard there, "
+            f"and --resume {draft_name}."
+        )
 
     def make_tts(index: int, scene: Scene) -> tuple[int, Path]:
         audio_path = keyed_path(audio_dir, index, narration_key(cfg, scene.text), ".mp3")
@@ -3893,8 +3943,6 @@ def main(argv: list[str] | None = None) -> int:
 
     pending_images = [(index, scene) for index, scene in enumerate(scenes, 1)
                       if not scene.image_path or not Path(scene.image_path).is_file()]
-    if args.resume:
-        print_image_cost_estimate(cfg, len(pending_images), len(pending_images), "Estimated remaining image cost")
 
     def make_image(index: int, scene: Scene, reference: str | None) -> tuple[int, Path]:
         image_path = keyed_path(image_dir, index, picture_key(cfg, scene, characters), ".png")
