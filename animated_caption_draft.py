@@ -14,6 +14,7 @@ import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -646,19 +647,29 @@ KEN_BURNS_PAN_SAFETY = 0.9
 
 # Opening-title colourways. The reference title is not one colour: it runs
 # warm white into crimson across the block, with a near-black stroke and a hard
-# offset shadow under it. Jianying has no per-character colour, so the ramp is
-# approximated the way most creators do it by hand -- the first line carries
-# the primary, the rest carry the accent -- which is why every title here is
-# two colours rather than one.
+# offset shadow under it. This file used to say Jianying has no per-character
+# colour and approximate the ramp by hand - first line primary, the rest
+# accent. That limit is pyJianYingDraft's, not the draft format's: a text's
+# style is a list of runs, each over a range of characters, and the library
+# only ever writes one. So the ramp is drawn as it is now, a fill per
+# character from the primary to the accent (see paint_characters), and a
+# colourway names its two ends.
 
 
 @dataclass(frozen=True)
 class TitleColours:
-    """primary = first line, accent = the lines under it, border = the stroke."""
+    """primary = where the title starts, accent = where it ends, border = the stroke.
+
+    `ramp` runs the fill from one to the other character by character. It is
+    off for colourways made of two inks that never blend on the real thing -
+    a risograph's two drums, a marker and a red pen, ink and a seal - where the
+    lines stay two flat colours instead: primary first, accent after.
+    """
 
     primary: tuple[float, float, float]
     accent: tuple[float, float, float]
     border: tuple[float, float, float]
+    ramp: bool = True
 
 
 TITLE_PRESETS: dict[str, TitleColours] = {
@@ -668,7 +679,7 @@ TITLE_PRESETS: dict[str, TitleColours] = {
     # palette instead of fighting it the way pure red does.
     "paper": TitleColours((0.97, 0.94, 0.88), (0.93, 0.66, 0.18), (0.16, 0.12, 0.10)),
     # Ink on paper, with the vermilion of a seal for the accent.
-    "ink": TitleColours((0.09, 0.09, 0.10), (0.78, 0.18, 0.12), (0.98, 0.96, 0.91)),
+    "ink": TitleColours((0.09, 0.09, 0.10), (0.78, 0.18, 0.12), (0.98, 0.96, 0.91), ramp=False),
     # All white on a crimson stroke: the loudest option, and the safest over
     # photography, where a coloured fill has nothing stable to sit against.
     "white": TitleColours((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (0.86, 0.12, 0.12)),
@@ -676,11 +687,11 @@ TITLE_PRESETS: dict[str, TitleColours] = {
     # Risograph inks, and the paper is cream, so the type is the two inks and
     # the stroke is the paper: deep teal over fluorescent orange, knocked out
     # in cream. Cream type on cream paper would live entirely on its stroke.
-    "poster": TitleColours((0.05, 0.27, 0.29), (0.97, 0.36, 0.16), (0.99, 0.96, 0.89)),
+    "poster": TitleColours((0.05, 0.27, 0.29), (0.97, 0.36, 0.16), (0.99, 0.96, 0.89), ramp=False),
     # Neon: white over cyan on a near-black stroke that reads as the night.
     "electric": TitleColours((1.0, 1.0, 1.0), (0.24, 0.85, 0.95), (0.04, 0.03, 0.10)),
     # Marker on paper: black over red, knocked out with a white stroke.
-    "marker": TitleColours((0.11, 0.11, 0.13), (0.86, 0.16, 0.14), (1.0, 1.0, 1.0)),
+    "marker": TitleColours((0.11, 0.11, 0.13), (0.86, 0.16, 0.14), (1.0, 1.0, 1.0), ramp=False),
 }
 DEFAULT_TITLE_STYLE = "crimson"
 
@@ -1086,6 +1097,140 @@ def title_line_offsets(count: int, base_y: float, size: float, em_px: float) -> 
     return [clamp_y(offset + shift) for offset in offsets]
 
 
+Colour = tuple[float, float, float]
+
+
+def _to_linear(channel: float) -> float:
+    return channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+
+
+def _to_srgb(channel: float) -> float:
+    channel = max(0.0, channel)
+    return 12.92 * channel if channel <= 0.0031308 else 1.055 * channel ** (1 / 2.4) - 0.055
+
+
+def _cbrt(value: float) -> float:
+    return math.copysign(abs(value) ** (1 / 3), value)     # math.cbrt is 3.11+
+
+
+def _oklab(colour: Colour) -> Colour:
+    r, g, b = (_to_linear(channel) for channel in colour)
+    # The three cone responses: long, medium and short wavelengths.
+    long_ = _cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+    medium = _cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+    short = _cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+    return (0.2104542553 * long_ + 0.7936177850 * medium - 0.0040720468 * short,
+            1.9779984951 * long_ - 2.4285922050 * medium + 0.4505937099 * short,
+            0.0259040371 * long_ + 0.7827717662 * medium - 0.8086757660 * short)
+
+
+def _from_oklab(lab: Colour) -> Colour:
+    lightness, a, b = lab
+    long_ = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3
+    medium = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3
+    short = (lightness - 0.0894841775 * a - 1.2914855480 * b) ** 3
+    rgb = (4.0767416621 * long_ - 3.3077115913 * medium + 0.2309699292 * short,
+           -1.2684380046 * long_ + 2.6097574011 * medium - 0.3413193965 * short,
+           -0.0041960863 * long_ - 0.7034186147 * medium + 1.7076147010 * short)
+    return tuple(min(1.0, _to_srgb(channel)) for channel in rgb)
+
+
+def blend(start: Colour, end: Colour, amount: float) -> Colour:
+    """The colour `amount` of the way from start to end, spaced evenly to the eye.
+
+    Mixed in OKLab rather than in RGB. RGB halfway between warm white and
+    crimson is a greyed salmon and the steps bunch up at the red end; in a
+    perceptual space each character moves the same visible distance.
+    """
+    if amount <= 0:
+        return start
+    if amount >= 1:
+        return end
+    a, b = _oklab(start), _oklab(end)
+    return _from_oklab(tuple(x + (y - x) * amount for x, y in zip(a, b, strict=True)))
+
+
+# How far the ramp runs within one line, against the step from one line to the
+# next. At 0.5 each line keeps the colour it reads as - the first warm white,
+# the last crimson - and runs part of the way towards its neighbour, which is
+# the reference's block. A ramp spread evenly over every character, compared
+# on the rendered title, turned the end of the first line pink and took the
+# punch out of the crimson; it is also what a single-line title still does.
+TITLE_RAMP_DRIFT = 0.5
+
+
+def title_fills(lines: list[str], colours: TitleColours, ramp: bool) -> list[list[Colour]]:
+    """The fill of every character of every title line.
+
+    A ramp starts on the primary at the first character and lands on the
+    accent at the last, in reading order, eased so the two colours a
+    colourway names are the ones that read. Without a ramp the first line is
+    the primary and the rest the accent.
+    """
+    if not ramp:
+        return [[colours.primary if row == 0 else colours.accent] * len(line)
+                for row, line in enumerate(lines)]
+    count = len(lines)
+    fills: list[list[Colour]] = []
+    for row, line in enumerate(lines):
+        fills.append([])
+        for column in range(len(line)):
+            along = column / (len(line) - 1) if len(line) > 1 else 0.0
+            t = (row + TITLE_RAMP_DRIFT * along) / (count - 1 + TITLE_RAMP_DRIFT) if count > 1 else along
+            eased = t * t * (3 - 2 * t)
+            fills[-1].append(tuple(round(channel, 4)
+                                   for channel in blend(colours.primary, colours.accent, eased)))
+    return fills
+
+
+def colour_runs(fills: list[Colour]) -> list[tuple[int, int, Colour]]:
+    """(start, end, fill) for each stretch of one colour - as few runs as the fills allow."""
+    runs: list[tuple[int, int, Colour]] = []
+    for index, fill in enumerate(fills):
+        if runs and runs[-1][2] == fill:
+            runs[-1] = (runs[-1][0], index + 1, fill)
+        else:
+            runs.append((index, index + 1, fill))
+    return runs
+
+
+def split_style_runs(content: dict[str, Any], fills: list[Colour]) -> dict[str, Any]:
+    """A text material's content, with its one style run split by fill.
+
+    Every run keeps the font, stroke, shadow and size of the original and
+    changes only the fill colour, so a ramped title is still one typeface with
+    one outline - just not one colour.
+    """
+    runs = colour_runs(fills)
+    if len(runs) <= 1:
+        return content
+    template = content["styles"][0]
+    styles = []
+    for start, end, fill in runs:
+        style = deepcopy(template)
+        style["range"] = [start, end]
+        style["fill"]["content"]["solid"]["color"] = list(fill)
+        styles.append(style)
+    return {**content, "styles": styles}
+
+
+def paint_characters(segment: Any, fills: list[Colour]) -> None:
+    """Colour a text segment character by character.
+
+    The split is applied to the material the library exports, and installed
+    on the segment itself, because pyJianYingDraft exports a text's material
+    at the moment the segment is added to the draft.
+    """
+    export = segment.export_material
+
+    def export_in_runs() -> dict[str, Any]:
+        material = export()
+        content = split_style_runs(json.loads(material["content"]), fills)
+        return {**material, "content": json.dumps(content, ensure_ascii=False)}
+
+    segment.export_material = export_in_runs
+
+
 def subtitle_line_count(text: str, size: float, max_line_width: float, em_px: float) -> int:
     """Estimate how many lines Jianying will wrap this caption onto."""
     characters = len(text.strip())
@@ -1454,6 +1599,9 @@ class Config:
     subtitle_animation: str
     subtitle_animation_us: int
     title_style: str
+    # Whether the title's fill ramps character by character, or stays one
+    # colour per line. Follows the colourway unless TITLE_COLOR_MODE says.
+    title_ramp: bool
     title_font: str
     title_y: float
     title_size: float
@@ -1498,6 +1646,9 @@ class Config:
         if title_style not in TITLE_PRESETS:
             options = ", ".join(sorted(TITLE_PRESETS))
             raise RuntimeError(f"TITLE_STYLE must be one of: {options}.")
+        title_color_mode = env_value("TITLE_COLOR_MODE", "").lower()
+        if title_color_mode not in {"", "ramp", "lines"}:
+            raise RuntimeError("TITLE_COLOR_MODE must be ramp or lines (or empty to follow the colourway).")
 
         draft_dir, draft_dir_source = resolve_draft_dir()
 
@@ -1632,6 +1783,8 @@ class Config:
                 speed,
             ),
             title_style=title_style,
+            title_ramp=(TITLE_PRESETS[title_style].ramp if not title_color_mode
+                        else title_color_mode == "ramp"),
             title_font=env_value("TITLE_FONT", DEFAULT_TITLE_FONT),
             title_y=layout_y(bounded_env_int(
                 "TITLE_Y", DEFAULT_TITLE_Y,
@@ -1850,7 +2003,8 @@ def describe_configuration(cfg: Config) -> None:
     limit = characters_per_line(cfg.title_size, cfg.title_max_line_width, cfg.subtitle_em_px)
     print(f"Title:      {cfg.title_font} at size {cfg.title_size:g} "
           f"(~{round(cfg.title_size * cfg.subtitle_em_px)} px per character, {limit} per line), "
-          f"colourway {cfg.title_style}, {cfg.title_us / 1e6:.1f}s")
+          f"colourway {cfg.title_style} ({'ramp' if cfg.title_ramp else 'one colour per line'}), "
+          f"{cfg.title_us / 1e6:.1f}s")
     print(f"Opening:    {cfg.opening_sound_path} at {cfg.opening_sound_volume:.2f}, "
           f"copy starts at {cfg.opening_lead_us / 1e6:.2f}s or later")
     print(f"Title voice: {'on' if cfg.speak_title else 'off'}"
@@ -2892,12 +3046,12 @@ def add_opening_sound(cfg: Config, draft: Any, track: Any, total_duration: int,
 def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], total_duration: int,
               title_intro: Any, title_outro: Any, font: Any,
               hold_us: int | None = None) -> None:
-    """Stack the title lines, first line in the primary colour, rest in accent.
+    """Stack the title lines and colour them, ramped or one colour per line.
 
     The reference title runs warm white into crimson across a two-line block.
-    Jianying colours a text segment as a whole, so the ramp becomes one segment
-    per line -- which also puts the line pitch under our control, and the
-    reference sets it tighter than any text default would.
+    Each line is still its own segment, because that is what puts the line
+    pitch under our control - the reference sets it tighter than any text
+    default would - and the ramp runs through the lines in reading order.
     """
     from pyJianYingDraft import ClipSettings, TextBorder, TextSegment, TextShadow, TextStyle, Timerange
 
@@ -2905,14 +3059,14 @@ def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], tota
     if duration <= 0 or not lines:
         return
     colours = TITLE_PRESETS[cfg.title_style]
+    fills = title_fills(lines, colours, cfg.title_ramp)
     size = fit_title_size(lines, cfg.title_size, cfg.title_max_line_width, cfg.subtitle_em_px)
     offsets = title_line_offsets(len(lines), cfg.title_y, size, cfg.subtitle_em_px)
-    for index, (line, track, offset) in enumerate(zip(lines, tracks, offsets, strict=True)):
+    for line, track, offset, line_fills in zip(lines, tracks, offsets, fills, strict=True):
         segment = TextSegment(
             line, Timerange(0, duration),
             font=font,
-            style=TextStyle(size=size, bold=True, align=1,
-                            color=colours.primary if index == 0 else colours.accent,
+            style=TextStyle(size=size, bold=True, align=1, color=line_fills[0],
                             letter_spacing=cfg.subtitle_letter_spacing, auto_wrapping=False),
             border=TextBorder(color=colours.border, width=cfg.title_border_width),
             # Hard and offset down-right rather than soft and centred: the
@@ -2920,6 +3074,7 @@ def add_title(cfg: Config, draft: Any, tracks: list[Any], lines: list[str], tota
             shadow=TextShadow(alpha=0.85, diffuse=8.0, distance=14.0, angle=-55.0),
             clip_settings=ClipSettings(transform_x=0.0, transform_y=offset),
         )
+        paint_characters(segment, line_fills)
         if title_intro is not None:
             segment.add_animation(title_intro, duration=min(500_000, duration))
         if title_outro is not None:

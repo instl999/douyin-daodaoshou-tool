@@ -112,7 +112,7 @@ This is what separates it from a batch image slideshow.
 | **Composed for a general audience** | At most one symbolic element per frame and it has to live in the room — a silhouette in a doorway reads, a row of floating icons does not; no collages or split screens |
 | **Consistent art direction** | One style prompt for the whole video: nine presets (see `styles.json`, editable and extensible), or write your own |
 | **A style brings its own fittings** | Switching style also switches what the storyboard director is told it is drawing, the whole-video filter, and the title colourway — no more picking film noir and getting a director who still writes flat comic panels |
-| **Measured title typography** | The title block is centred, broken onto two or three lines and coloured line by line, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
+| **Measured title typography** | The title block is centred and broken onto two or three lines, its colour running character by character from warm white into crimson, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
 | **Consistent cast** | The storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds |
 | **Varied framing** | Wide / medium / close chosen per line — wide to open a section and establish a place, close for a feeling, a turn or a conclusion |
 | **One image, one whole shot** | Picture 1 runs to its end and picture 2 follows; an image is never cut into two segments |
@@ -377,11 +377,25 @@ when the title was drawn but never spoken.
 
 Two things work differently from before and are worth spelling out.
 
-**The title is one text layer per line.** The reference title ramps from warm white to crimson, and
-Jianying cannot colour part of a text segment, so each line becomes its own segment on its own text
-track: the first line takes the primary colour, the rest take the accent. That also puts the line
-pitch under our control — 0.95 em is tighter than any text default, and without it the two halves
-stop reading as one block.
+**The title is one text layer per line, and its colour runs character by character.** Each line is
+its own segment on its own text track, which puts the line pitch under our control — 0.95 em is
+tighter than any text default, and without it the two halves stop reading as one block.
+
+The reference title ramps from warm white to crimson. This used to say Jianying cannot colour part of
+a text, so the first line took the primary and the rest the accent. That limit is pyJianYingDraft's,
+not the draft format's: a text's style is already a list of runs over character ranges, and the
+library writes one. Now every character gets its own fill, from the primary at the first character to
+the accent at the last, with the font, stroke and shadow unchanged — only the colour moves.
+
+The ramp runs in reading order, but each line keeps the colour it reads as — the first warm white,
+the last crimson — and drifts part of the way towards its neighbour. Spread evenly over every
+character, compared on the rendered title, it turned the end of the first line pink and took the
+punch out of the crimson. Colours are mixed in the perceptual OKLab space, so every character moves
+the same visible distance.
+
+`TITLE_COLOR_MODE=lines` brings back one colour per line. The `poster`, `marker` and `ink` colourways
+default to it: a risograph's two drums, a marker and a red pen, ink and a seal never blend on the real
+thing.
 
 **The break point is chosen here, not by auto-wrap.** Where a title breaks decides the shape of the
 whole opening frame, and auto-wrap picks it purely on width. Two Chinese line-breaking rules are
@@ -568,7 +582,7 @@ to compete with the line that follows the gap it fills.
 [narration] one segment per line, separated only by the paragraph beats
 [captions] aligned to the narration, with an intro animation; silent in the beats
 [title]    first 2.4s at 1.0x, scaled by VIDEO_SPEED; one text track per line
-           (title_overlay, title_overlay_2, ...), coloured line by line
+           (title_overlay, title_overlay_2, ...), colour ramping character by character
 [SFX]      once, at the open
 [BGM]      picked from the library by mood; 0.056 under speech, 0.10 in the
            gaps; looped, faded at both ends
@@ -611,6 +625,7 @@ Every setting is documented inline in [.env.example](.env.example). The ones you
 | `SUBTITLE_STYLE` | `plate` | `plate` white on a dark plate / `outline` white with a stroke / `box` the old style |
 | `SUBTITLE_FONT` | `SourceHanSansCN_Medium` | Caption font; any Jianying font name |
 | `TITLE_STYLE` | empty = follows the style | `crimson` / `paper` / `ink` / `white` / `gold` / `poster` / `electric` / `marker` |
+| `TITLE_COLOR_MODE` | empty = follows the colourway | `ramp` runs from the primary to the accent character by character / `lines` first line primary, the rest accent |
 | `TITLE_FONT` | `优设标题黑` | Title font |
 | `TITLE_SIZE` / `TITLE_Y` | `19.5` / `0` | Title size and position; defaults match the reference video |
 | `IMAGE_CONCURRENCY` | `3` | Image workers; lower it on HTTP 429 |
@@ -702,7 +717,8 @@ The suite covers every piece of logic that does not call a paid API:
 - BGM looping, head/tail fades, and the ducking envelope (including "do not lift when the gap is too short")
 - Caption wrap estimation and baseline compensation
 - Title line breaking: the reference title's real break point, the particle rules, digit runs kept whole, explicit newlines, the line ceiling
-- The stacked title: block centring, line pitch, per-line colour, and shrinking rather than wrapping when it is too long
+- The stacked title: block centring, line pitch, and shrinking rather than wrapping when it is too long
+- The title ramp: primary at the first character, accent at the last, each line holding its own end, every split run keeping the font, stroke and shadow, and `lines` mode and the two-ink colourways staying flat
 - The frame's subject: it reaches the prompt, it falls back when absent, the element budget and subject size track the framing, and neither end may ask for a collage
 - What the director is held to: naming a drawable thing, no symbol piles, and the same element budget the picture is drawn to
 - The default style paints the subject and draws the room, and the old "single-colour, no filled colour areas" clauses are gone rather than contradicted
