@@ -1,5 +1,15 @@
 # Douyin "Xinli Daodaoshou" Same-Style Video Maker · Jianying Draft Generator
 
+<!-- repository-catalog:start -->
+**Category: Video creation and editing** · [Repositories in this category](https://github.com/instl999?tab=repositories&q=topic%3Avideo-creation)
+
+Turns Chinese scripts into editable Jianying Pro drafts with storyboards, voice-over, images and captions.
+
+Related projects: [douyin-carousel-generator](https://github.com/instl999/douyin-carousel-generator) · [douyin-paper-video-maker](https://github.com/instl999/douyin-paper-video-maker) · [douyin-spongebob-economics-tool](https://github.com/instl999/douyin-spongebob-economics-tool)
+
+[简体中文](README.md)
+<!-- repository-catalog:end -->
+
 Recreates the video format of the Douyin blogger "Xinli Daodaoshou" ([creator page](https://v.douyin.com/AYhnYiaH0uo/)): it turns a piece of Chinese copy into an editable Jianying (CapCut China) draft — an AI storyboard, per-line voice-over, one panel per line, then a timeline with visuals, narration, captions, a title, sound effects, BGM and a colour grade already laid out.
 
 > **Ships with Volcengine Ark Agent Plan API support** — storyboard, image
