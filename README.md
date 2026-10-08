@@ -1,5 +1,15 @@
 # 抖音「心理叨叨兽」同款视频制作工具 · 剪映草稿生成器
 
+<!-- repository-catalog:start -->
+**分类：视频创作与剪辑** · [同类仓库](https://github.com/instl999?tab=repositories&q=topic%3Avideo-creation)
+
+把中文文案转成含分镜、配音、画面和字幕的可编辑剪映专业版草稿。
+
+相关项目：[douyin-carousel-generator](https://github.com/instl999/douyin-carousel-generator) · [douyin-paper-video-maker](https://github.com/instl999/douyin-paper-video-maker) · [douyin-spongebob-economics-tool](https://github.com/instl999/douyin-spongebob-economics-tool)
+
+[English](README.en.md)
+<!-- repository-catalog:end -->
+
 复刻抖音博主「心理叨叨兽」（[博主主页](https://v.douyin.com/AYhnYiaH0uo/)）的同款视频：把一段中文文案，变成一份可以在剪映专业版里继续编辑的草稿 —— AI 拆分镜、逐句配音、逐句生成画面，然后自动铺好视觉、旁白、字幕、标题、音效、BGM 和调色轨道。
 
 **9 套内置画风**，默认那套（`midnight` 深蓝彩漫）连同片头标题和字幕的字号、位置、配色，都是照着参考视频逐帧量出来的。
