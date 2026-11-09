@@ -1,28 +1,29 @@
-# 抖音「心理叨叨兽」同款视频制作工具 · 剪映草稿生成器
+# Douyin "Xinli Daodaoshou" Same-Style Video Maker · Jianying Draft Generator
 
 <!-- repository-catalog:start -->
-**分类：视频创作与剪辑** · [同类仓库](https://github.com/instl999?tab=repositories&q=topic%3Avideo-creation)
+**Category: Video creation and editing** · [Repositories in this category](https://github.com/instl999?tab=repositories&q=topic%3Avideo-creation)
 
-把中文文案转成含分镜、配音、画面和字幕的可编辑剪映专业版草稿。
+Turns Chinese scripts into editable Jianying Pro drafts with storyboards, voice-over, images and captions.
 
-相关项目：[douyin-carousel-generator](https://github.com/instl999/douyin-carousel-generator) · [douyin-paper-video-maker](https://github.com/instl999/douyin-paper-video-maker) · [douyin-spongebob-economics-tool](https://github.com/instl999/douyin-spongebob-economics-tool)
+Related projects: [douyin-carousel-generator](https://github.com/instl999/douyin-carousel-generator) · [douyin-paper-video-maker](https://github.com/instl999/douyin-paper-video-maker) · [douyin-spongebob-economics-tool](https://github.com/instl999/douyin-spongebob-economics-tool)
 
-[English](README.en.md)
 <!-- repository-catalog:end -->
 
-复刻抖音博主「心理叨叨兽」（[博主主页](https://v.douyin.com/AYhnYiaH0uo/)）的同款视频：把一段中文文案，变成一份可以在剪映专业版里继续编辑的草稿 —— AI 拆分镜、逐句配音、逐句生成画面，然后自动铺好视觉、旁白、字幕、标题、音效、BGM 和调色轨道。
+Recreates the video format of the Douyin blogger "Xinli Daodaoshou" ([creator page](https://v.douyin.com/AYhnYiaH0uo/)): it turns a piece of Chinese copy into an editable Jianying (CapCut China) draft — an AI storyboard, per-line voice-over, one panel per line, then a timeline with visuals, narration, captions, a title, sound effects, BGM and a colour grade already laid out.
 
-**9 套内置画风**，默认那套（`midnight` 深蓝彩漫）连同片头标题和字幕的字号、位置、配色，都是照着参考视频逐帧量出来的。
+> **Ships with Volcengine Ark Agent Plan API support** — storyboard, image
+> generation and voice-over share one `ARK_API_KEY`, all routed through the
+> Agent Plan API. **Image generation is still billed on Agent Plan**, although
+> it is usually cheaper than standard pay-as-you-go calls. Check the current
+> price and your actual bill in the Volcengine Ark console.
 
-**自带火山方舟 Agent Plan API 支持**：分镜、生图、配音共用一把 `ARK_API_KEY`，全部走 Agent Plan 接口。**Agent Plan 生图仍会计费**，只是通常比标准按量调用成本低；实际费用以火山方舟控制台显示的最新定价和账单为准。
+It produces a **draft, not a finished video** — every asset and keyframe sits on the timeline, so you can adjust anything by hand and export it yourself.
 
-生成的是**草稿**而不是成片 —— 所有素材和关键帧都在时间轴上，你可以随时手动改，再自己导出。
 
-English documentation: [README.en.md](README.en.md)
 
 ---
 
-## 60 秒上手
+## Sixty-second start
 
 ```powershell
 git clone https://github.com/instl999/douyin-daodaoshou-tool.git
@@ -31,671 +32,745 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-在 `.env` 里填两样东西：`ARK_API_KEY` 和 `ARK_TTS_VOICE_TYPE`。
-有 DeepSeek 的 key 就再填一个 `DEEPSEEK_API_KEY` —— 分镜会快很多（见[分镜用哪个模型](#分镜用哪个模型)）。
-草稿目录不用填 —— 程序会自己找本机剪映的草稿文件夹，跑完直接就在剪映里，
-不用手动复制（找不到时才需要填 `JIAN_YING_DRAFT_DIR`）。然后：
+Fill in two things in `.env` — `ARK_API_KEY` and `ARK_TTS_VOICE_TYPE` — plus
+`DEEPSEEK_API_KEY` if you have one, which makes the storyboard much faster. The
+draft folder is found for you, so the draft lands in Jianying with nothing to
+copy by hand; set `JIAN_YING_DRAFT_DIR` only if that lookup fails. Then:
 
 ```powershell
 python animated_caption_draft.py --check-config
 ```
 
-有问题会一次全部列出来（缺剪映草稿目录、缺 Key、缺音色……逐条编号），不用一轮一轮地试。没报错就可以出片：
+Every problem is listed at once (no drafts folder, no key, no voice… numbered), rather than one per run. If it passes, make a video:
 
 ```powershell
-python animated_caption_draft.py --draft-name my_story --title "示例标题" --input copy.txt
+python animated_caption_draft.py --draft-name my_story --title "Example title" --input copy.txt
 ```
 
-跑完打开剪映，草稿列表里就有 `my_story` 了。终端最后一段是这次的汇总：几镜、几段、片长，这次念了几句、画了几张、复用了多少、大约花了多少，配了哪首 BGM、用的什么画风和标题配色 —— 同样记进 `run.log`。
+Open Jianying and `my_story` is waiting in the draft list. The run ends on a summary: scenes, paragraphs and length; how many lines were read and frames drawn this run, how many were reused and roughly what they cost; the music chosen, and the style and title colouring used — written to `run.log` as well.
 
 ---
 
-## 推荐：直接交给 Codex / Claude Code
+## Recommended: run it directly from Codex or Claude Code
 
-这个仓库很适合让编码 Agent 直接操作：在 Codex 或 Claude Code 中打开仓库目录，用自然语言说明文案、标题、画风和草稿名即可，不需要再套一层脚本或工作流。让 Agent 先读本 README，并在任何会调用付费 API 的步骤前说明预计镜头数；生成失败时优先使用 `--resume`，避免重复生成已经成功的素材。
+This repository is designed to be driven directly by a coding agent. Open the
+repository in Codex or Claude Code and describe the copy, title, style and draft
+name in plain language; no extra wrapper or workflow is required. Ask the agent
+to read this README first, report the expected shot count before any billed API
+work, and use `--resume` after a failure so completed assets are not generated
+and billed again.
 
-下面这些提示词可以直接复制给 Agent：
+Copy-paste examples:
 
-**首次安装，只做免费体检**
-
-```text
-阅读 README.md 和 .env.example，帮我安装依赖并运行 --check-config。不要调用任何付费 API；缺少的 Key、音色或本地素材请列清楚，让我自己填写。
-```
-
-**先看分镜，再决定是否生图**
-
-```text
-读取 copy.txt，用 midnight 画风为“为什么越忙越焦虑”制作分镜预览，草稿名用 anxiety_story。先运行 --plan-only，检查每镜主体、景别和角色一致性，并告诉我预计会生成多少张图；先不要生成媒体。我确认后用 --resume anxiety_story 按这份分镜出片，不要重新规划。
-```
-
-**从文案生成可编辑剪映草稿**
+**Set up and run only the free checks**
 
 ```text
-读取 copy.txt，标题用“真正拖垮你的不是忙”，生成名为 anxiety_story 的剪映草稿。开始前检查配置并说明预计镜头数；完成后检查输出和日志。如果中途失败，用 --resume 续跑，不要从头重复付费生成。
+Read README.en.md and .env.example, install the dependencies, and run --check-config. Do not call any paid API. List the missing keys, voice setting, or local assets so I can fill them in myself.
 ```
 
-**换画风或修某个镜头**
+**Review the storyboard before generating images**
 
 ```text
-检查 output/anxiety_story 的现有结果。把画风改成 noir（会重画每一张），或者只用 --redo 重画画面不合适的那几镜；尽量复用现有旁白和已成功素材，花钱之前先说明会重画几张。
+Read copy.txt and prepare a midnight-style storyboard for “Why being busy makes us anxious”, with the draft name anxiety_story. Run --plan-only, review the subject, framing, and character consistency of every shot, and tell me how many images the full run would generate. Do not generate media yet. Once I approve, make it with --resume anxiety_story from that storyboard instead of planning again.
 ```
 
-> 费用提醒：`--check-config` 不调用 API；`--plan-only` 仍会调用文本模型；完整生成会调用文本、TTS 和生图服务。Agent Plan 不是免费额度，运行前请在火山方舟控制台确认当前价格与余额。
-> 分镜一出来、配音和生图开始之前，终端会打印这一次**确切**要画几张、复用几张（填了 `ARK_IMAGE_CNY_PER_IMAGE` 还会给出金额）；`--plan-only` 结尾也会打印同一行。无人值守时可以设 `MAX_IMAGES`：超过就在花钱之前停下，分镜照样保存，调高上限或删减分镜后 `--resume` 即可。
+**Build an editable Jianying draft**
+
+```text
+Use copy.txt with the title “Busy Is Not What Breaks You” and create a Jianying draft named anxiety_story. Check the configuration and report the expected shot count first. When it finishes, inspect the output and log. If a stage fails, resume it instead of paying to regenerate completed assets.
+```
+
+**Change the look or repair a shot**
+
+```text
+Inspect the existing output/anxiety_story run. Switch it to the noir preset (which redraws every frame), or redraw only the shots with unsuitable artwork using --redo. Reuse narration and successful assets wherever possible, and tell me how many frames will be redrawn before spending anything.
+```
+
+> Cost note: `--check-config` makes no API calls; `--plan-only` still calls the
+> text model; a full run uses text, TTS and image APIs. Agent Plan is not a free
+> image allowance, so check current pricing and balance in the Ark console.
+> Once the storyboard exists, and before any narration or picture is paid for,
+> the run prints the **exact** number of frames it will draw and reuse (with a
+> price when `ARK_IMAGE_CNY_PER_IMAGE` is set); `--plan-only` ends on the same
+> line. For unattended runs, set `MAX_IMAGES`: over it, the run stops before
+> spending, with the storyboard saved — raise the cap or trim the storyboard,
+> then `--resume`.
 
 ---
 
-## 工作原理
+## How it works
 
 ```text
-文案 ──▶ 分镜规划 ──▶ 逐句配音 ──▶ 逐句生图 ──▶ 写入剪映草稿
-        (文本模型)      (TTS)       (生图模型)
-          │              │            │
-          │              │            └─ 每句一张图，注入统一画风与角色设定
-          │              └─ 决定每个镜头的实际长度
-          └─ 拆句 + 抽取全片角色 + 逐句标注景别和段落边界
+copy ──▶ storyboard ──▶ voice-over ──▶ images ──▶ Jianying draft
+        (text model)      (TTS)      (image model)
+          │                 │             │
+          │                 │             └─ one panel per line, with the shared
+          │                 │                art direction and cast injected
+          │                 └─ sets each shot's real length
+          └─ splits the copy, extracts the cast, tags framing and paragraph ends
 ```
 
-四个阶段的产物都会落盘到 `output/<草稿名>/`，任何一步失败都能用 `--resume` 从断点续跑，已经生成过的素材不会重复付费。
+Every stage writes to `output/<draft-name>/`, so a failure at any step can be picked up with `--resume` without paying for the assets that already succeeded.
 
 ---
 
-## 它替你做了哪些剪辑判断
+## The editing decisions it makes for you
 
-这部分是这个工具和"批量图片轮播"的区别所在。
+This is what separates it from a batch image slideshow.
 
-| | 做法 |
+| | Behaviour |
 | --- | --- |
-| **一图一主体** | 每镜先点名一个画得出来的主体，再按「主体最大最清楚、陪衬一律次要、至少留白三分之一」排优先级；缩到一英寸宽也认得出来 |
-| **景别定容量** | 全景 4 样、中景 2 样、特写 1 样 —— 同一个上限同时发给分镜导演和生图模型 |
-| **主体不限于人** | 场景、物件、人三者同等；讲情绪的句子常常由那个房间来承担，而不是一张脸。每批里必须有几格以场景或物件为主体 |
-| **场景要有人味** | 必须落到一个具体的、有家具的房间，摆上两三样说明「这是谁的房间、几点钟」的道具，并给一个光源 |
-| **按大众审美取景** | 一格最多一个象征元素，而且要长在房间里（门口的剪影可以，悬空的一排图标不行）；不许拼图和分屏 |
-| **画风统一** | 全片共用一段画风提示词，九个预设可选（见 `styles.json`，可改可加），也可整段自定义 |
-| **画风带着配套件** | 换画风时，分镜导演拿到的“这是什么画”、全片滤镜、标题配色会跟着一起换，不会出现“选了黑白电影、导演还在写条漫分镜”这种事 |
-| **标题排版照着量** | 标题整块居中、两到三行，颜色逐字从暖白过渡到正红，字号和行距取自参考视频；断行按中文习惯挑，不交给剪映的自动换行 |
-| **角色一致** | 分镜阶段抽出全片共用的角色设定，逐字注入每一张图的提示词，主角不会每隔几秒换一张脸 |
-| **参考图锚定（可选）** | `IMAGE_REFERENCE=anchor`：先画一张锚点，其余每一张都带着它去画，人物长相和整片色调靠图守住，而不只靠文字；实验性，默认关闭 |
-| **景别有变化** | 逐句决定全景 / 中景 / 特写：全景开段落和交代环境，特写落在情绪、转折和结论上 |
-| **一图一镜到底** | 第 1 张图播完直接接第 2 张，同一张图不会在中途被切开 |
-| **运镜跟着镜头走** | 特写推近；中景边推边轻移；全景拉远或横移，让地方自己露出来；段落最后一镜（和全片最后一镜）拉远，退进后面的气口里。同一种景别轮流用几种运镜，相邻两镜从不重复。以前五种运镜按顺序轮换，拉远可能正好落在一段话推向高潮的那个特写上 |
-| **运镜速度恒定** | 运动量由**镜头时长**推导，1.6 秒和 6.2 秒的镜头观感速度一致；横移幅度收在缩放留出的余量内，不会露边 |
-| **片子会呼吸** | 段落结尾插入气口（只剩 BGM，画面撑着不黑）；最后一句念完片子就结束，尾巴上不留空镜 |
-| **BGM 按文案挑** | 曲库里按文件名的中文情绪标签匹配分镜阶段判定的情绪，挑一首垫全片；对不上就不加 |
-| **BGM 会闪避** | 人声底下压到 0.056（-25 dB），气口抬到 0.10（-20 dB）；空档太短就不抬，免得每句之间都在"喘" |
-| **字幕基线稳定** | 换行的字幕整体上抬，让底行位置不动，不会因为行数变化而上下跳 |
-| **色彩统一** | 顶层一条滤镜轨铺满全片，把各自独立生成、色温会漂的图拉到同一个调子 |
-| **全片硬切** | 没有转场也没有入场动画，画面的运动完全由运镜承担 |
+| **One subject per frame** | Each shot names a drawable subject first, then composes around it: subject largest and sharpest, support visibly subordinate, a third of the frame left quiet. Still readable an inch wide |
+| **Framing sets the budget** | 4 supporting elements wide, 2 medium, 1 close — the same cap given to the director and to the image model |
+| **The subject is not always a person** | A place, an object and a person rank equally; a sentence about feeling is often carried by the room rather than by a face, and every batch must include frames whose subject is a place or an object |
+| **Rooms somebody lives in** | Every frame is set somewhere specific and furnished, with the two or three props that say whose room it is and what time it is, and one light source |
+| **Composed for a general audience** | At most one symbolic element per frame and it has to live in the room — a silhouette in a doorway reads, a row of floating icons does not; no collages or split screens |
+| **Consistent art direction** | One style prompt for the whole video: nine presets (see `styles.json`, editable and extensible), or write your own |
+| **A style brings its own fittings** | Switching style also switches what the storyboard director is told it is drawing, the whole-video filter, and the title colourway — no more picking film noir and getting a director who still writes flat comic panels |
+| **Measured title typography** | The title block is centred and broken onto two or three lines, its colour running character by character from warm white into crimson, at the size and line pitch measured off the reference video; the break point is chosen by Chinese line-breaking rules rather than left to Jianying's auto-wrap |
+| **Consistent cast** | The storyboard step extracts a cast shared by the whole video and injects each description verbatim into every prompt, so the protagonist does not change face every few seconds |
+| **An anchor frame (optional)** | `IMAGE_REFERENCE=anchor`: one frame is drawn first and every other frame is drawn with it as a reference, so faces and palette are held by a picture, not only by words; experimental, off by default |
+| **Varied framing** | Wide / medium / close chosen per line — wide to open a section and establish a place, close for a feeling, a turn or a conclusion |
+| **One image, one whole shot** | Picture 1 runs to its end and picture 2 follows; an image is never cut into two segments |
+| **The camera follows the shot** | A close-up pushes in; a medium shot pushes in with a drift; a wide shot pulls out or pans so the place reveals itself; the last shot of a paragraph (and of the video) pulls out, stepping back into the beat that follows. Each framing takes its moves in turn and no two shots in a row move the same way. The moves used to rotate in order, so a pull-out could land on the close-up a paragraph builds to |
+| **Constant camera speed** | How far each move travels is derived from the shot's length, so a 1.6s shot and a 6.2s shot move at the same perceived speed; a pan stays inside the headroom the scale provides and never exposes the frame edge |
+| **Room to breathe** | A beat of BGM only after each paragraph (the outgoing picture holds through it); the video ends on the last subtitle, with no dead air after it |
+| **Music matched to the copy** | One bed picked from the library by the mood label on each filename, matched to how the director read the script; nothing found means no music |
+| **Ducked music** | 0.056 under speech, lifted to 0.10 in the gaps — and not lifted at all where the gap is too short, so it never pumps between sentences |
+| **Stable caption baseline** | A wrapped caption is raised by half a line so its bottom line stays put, instead of the block jumping as the line count changes |
+| **Unified colour** | One filter across the whole video, pulling independently generated panels into the same look |
+| **Hard cuts throughout** | No transitions, no intro animations; all the motion comes from the camera move |
 
 ---
 
-## 环境要求
+## Requirements
 
 - Windows 10/11
-- Python 3.10 或更高版本
-- 剪映专业版
-- 火山方舟 Agent Plan API Key（分镜、生图、语音合成共用同一把；生图仍会计费，通常成本较低，实际费用以控制台为准）
+- Python 3.10+
+- Jianying Pro
+- A Volcengine Ark Agent Plan API key (shared by the storyboard, image and speech models; image generation is billed, usually at a lower cost, with actual charges shown in the Ark console)
 
-## 准备本地素材
+## Local assets
 
-仓库不包含任何个人或可能受版权保护的媒体文件，请自行放入 `assets/`：
+The repository ships no personal or potentially licensed media. Add your own under `assets/`:
 
 ```text
 assets/
-  opening_dong.mp3       # 随仓库提供：开场音效
-  bgm/                   # 可选：BGM 曲库，按文件名的情绪标签自动挑
-    紧张Kill Drill - Robert Ruth.mp3
-    舒缓Keep on the Sunny Side - 岩崎太整.mp3
-    ...
-  watermark.png          # 可选：水印
+  opening_dong.mp3       # optional: one is synthesised if absent
+  background_music.mp3   # optional: BGM
+  watermark.png          # optional: watermark
 ```
 
-在 `.env` 里填相对路径或完整路径。BGM 和水印留空即可跳过。
-曲库放在别处就把 `BGM_LIBRARY` 指过去；只想固定用某一首就填 `BGM_PATH`。
+Point `.env` at relative or absolute paths. Leave BGM and watermark empty to skip them.
 
-**开场音效随仓库提供，且不会被合成替代。** `assets/opening_dong.mp3` 就是成片里那一声「咚」，原样播放、不改音量。程序里没有任何合成兜底：这一声是这类视频的识别度所在，用一个「听起来差不多」的替身比直接报错更糟。想换成自己的，把 `OPENING_SOUND_PATH` 指过去即可；路径填错会直接报错，而不是悄悄换一个。
+**The opening cue ships, and is never synthesised.** `assets/opening_dong.mp3` is the 咚 you hear in the finished video, played exactly as supplied at unity gain. There is no fallback that builds a stand-in: this sound is what these videos are recognised by, and something that merely resembles it is worse than an error. Point `OPENING_SOUND_PATH` at your own file to change it; a path that does not exist fails loudly rather than being quietly replaced.
 
 ---
 
-## 九套画风
+## The nine styles
 
-全部集中在 **`styles.json`**（仓库根目录），改画风不用动代码。
+All of them live in **`styles.json`** at the repo root, so changing the look never means touching code.
 
-| 预设 | 观感 | 配套滤镜 / 标题配色 |
+| Preset | Look | Filter / title colourway |
 | --- | --- | --- |
-| `midnight`（默认） | **深蓝彩漫**：整幅上色的漫画场景，黑线勾边加平涂，冷调深蓝配一盏暖灯；房间摆满东西、铺满画面。参考视频用的就是这一套 | 深蓝电影感 / crimson |
-| `manhua` | **国漫条漫**：细墨线、平涂、柔和日光、低饱和暖色。脸会演戏，情绪和对话类文案用它最稳 | 灰调中性 / paper |
-| `ink` | **水墨留白**：焦墨湿笔、宣纸纤维、大片留白，只有一枚朱红 | 水墨意境 / ink |
-| `papercut` | **剪纸拼贴**：分层剪纸 + 真实投影，五种纸色，没有线也没有渲染，全靠形状和影子 | 牛皮纸 / paper |
-| `riso` | **复古套印**：荧光橙 + 深青双色套印，粗网点、故意错位、纸面颗粒 | 复古工业 / poster |
-| `gouache` | **水粉绘本**：不透明水粉、看得见笔触、暖旧色，午后长影 | 奶油 / paper |
-| `noir` | **黑白电影**：纯黑白实拍，单侧硬光、百叶窗影、雨和烟，银盐颗粒 | 高清黑白 / white |
-| `neon` | **霓虹夜城**：雨后夜城实拍，品红与青的霓虹、湿地面反射、大光斑 | 赛博朋克 / electric |
-| `notebook` | **手绘笔记**：米白纸上的黑色马克笔线稿，一道黄色荧光笔 + 少量红笔批注 | 高清明亮 / marker |
+| `midnight` (default) | **Painted, cool navy, one warm lamp**: a fully painted comic scene in black ink outlines and flat fills, a cool navy palette lit by one warm source, rooms furnished to the frame edges. This is the reference video's look | 深蓝电影感 / crimson |
+| `manhua` | **Chinese webtoon**: fine ink lines, flat fills, soft daylight, low-saturation warm palette. The faces act, so it carries feeling and dialogue best | neutral grey / paper |
+| `ink` | **Ink and wash**: wet brush on rice paper, vast empty space, a single vermilion accent | ink wash / ink |
+| `papercut` | **Cut-paper collage**: layered paper with real drop shadows, five paper colours, no lines and no rendering — shape and shadow only | kraft paper / paper |
+| `riso` | **Two-colour risograph**: fluorescent orange over deep teal, coarse halftone, deliberate misregistration, paper speckle | retro industrial / poster |
+| `gouache` | **Painted storybook**: opaque gouache, visible brush strokes, warm faded palette, long afternoon shadows. The softest of the set | cream / paper |
+| `noir` | **Film noir**: black-and-white photography, one hard side key, blind shadows, rain and smoke, silver grain | high-contrast B&W / white |
+| `neon` | **Neon night city**: photoreal rain-soaked city, magenta and cyan signage, wet reflections, heavy bokeh. The exact opposite of noir | cyberpunk / electric |
+| `notebook` | **Marker sketch**: black felt-tip line work on off-white paper, one yellow highlighter swipe, sparse red-pen annotation | bright / marker |
 
-`midnight` 是默认值，因为它同时是参考视频的画风、也是全套里最容易保持稳定的一套 ——
-所有画面都是同一根白线画在同一块深蓝上，隔几小时分别生成的图剪在一起也不会散。
+`midnight` is the default because it is both the reference video's look and the most stable of the
+nine: every panel is the same white line on the same navy, so images generated hours apart still cut
+together.
 
-### 一个画风不只是一段提示词
+### A style is more than a prompt
 
-每套画风带五个字段，后四个是「必须跟着画风一起变」的东西：
+Each preset carries five fields, and four of them exist because they have to move with the look:
 
-| 字段 | 作用 |
+| Field | What it does |
 | --- | --- |
-| `prompt` | 拼在每一句分镜描述之后的画风提示词 |
-| `medium` | 这是「什么画」。同时给分镜导演和每张图的提示词用 —— 以前这句话写死成「社会写实条漫」，选了 `noir` 也一样，导演还在按条漫写分镜 |
-| `avoid` | 这种画绝不能变成什么，措辞和 `medium` 配套 |
-| `grade` | 配套滤镜。中性灰会把 `midnight` 的深蓝压平，对 `noir` 又等于没做 |
-| `title` | 配套的标题配色 |
-| `label` | 中文名，只用于 `--check-config` 的输出 |
+| `prompt` | The art direction appended to every scene description |
+| `medium` | What the picture *is*. Goes to the storyboard director and into every image prompt — this sentence used to be hard-coded to "social-realism manhua", so picking `noir` still got a director briefing flat comic panels |
+| `avoid` | What that medium must never collapse into, worded to match |
+| `grade` | The matching Jianying filter. A neutral grey pass flattens the navy out of `midnight` and does nothing at all for `noir` |
+| `title` | The matching title colourway |
+| `label` | A Chinese short name, used only in `--check-config` output |
 
-`grade` 和 `title` 只是默认值：`.env` 里的 `COLOR_GRADE` / `TITLE_STYLE` 一旦填了就以它们为准。
+`grade` and `title` are defaults: `COLOR_GRADE` / `TITLE_STYLE` in `.env` win once they are set.
 
-### 怎么改
+### How to change it
 
-按改动幅度从小到大：
+Smallest change first:
 
-| 想怎么改 | 改哪里 |
+| What you want | Where |
 | --- | --- |
-| 换一套现成画风 | `.env` 的 `IMAGE_STYLE_PRESET`，取值就是 `styles.json` 里的键名 |
-| 微调某套预设 / 加一套自己的画风 | 直接编辑 [styles.json](styles.json)：改 `presets` 里现有键的值，或加一个新键（`IMAGE_STYLE_PRESET` 填新键名即可用）；把 `"default"` 换成你的键，连 `.env` 都不用动 |
-| 画风文件放别处 / 多套画风轮换 | `.env` 的 `IMAGE_STYLES_FILE` 指向任意 JSON（相对路径基于仓库根目录） |
-| 只这一次想换个完整描述，不改文件 | `.env` 的 `IMAGE_STYLE_PROMPT`，会覆盖预设的 `prompt`（其余四个字段仍沿用该预设） |
+| Switch to another preset | `IMAGE_STYLE_PRESET` in `.env` — the value is any key in [styles.json](styles.json) |
+| Tweak a preset or add your own | Edit [styles.json](styles.json): change an existing entry under `presets`, or add a new key and set `IMAGE_STYLE_PRESET` to it; change `"default"` and even `.env` can stay untouched |
+| Keep the file elsewhere / rotate several palettes | `IMAGE_STYLES_FILE` in `.env` points at any JSON file (relative paths resolve against the repo root) |
+| One-off complete description, without touching files | `IMAGE_STYLE_PROMPT` in `.env` overrides the preset's `prompt` (its other four fields still apply) |
 
-说明：
+Notes:
 
-- `presets` 里的值可以是完整对象，也可以只写一段提示词字符串 —— 后者只替换 `prompt`，
-  `medium` / `avoid` / `grade` / `title` 仍沿用同名内置预设，所以改一句话不会顺手把配套滤镜弄丢
-- `styles.json` 缺失时会在首次运行按内置默认自动生成；文件坏了（非法 JSON、`"default"` 指向不存在的键、
-  某个预设没有 `prompt`）会**直接报错并指出位置**，不会悄悄退回默认
-- 代码里保留了一份内置默认（[`daodaoshou/styles.py`](daodaoshou/styles.py) 的 `STYLE_PRESETS` 字典），
-  `styles.json` 里的同名预设会覆盖它 —— **升级代码不会冲掉你改过的画风**
-- `ARK_IMAGE_SEED`（[`.env.example`](.env.example)）：固定随机种子，画风更稳、重跑可复现
-- 画风提示词由 `compose_image_prompt()` 拼在每句分镜描述之后 —— 画面跑偏时先 `--plan-only` 看分镜描述本身对不对，分镜偏了改画风没用
-- `--check-config` 会打印当前生效的画风、它的 `medium`、来源文件，以及滤镜和标题的实际取值
+- A value under `presets` may be the full object or just a prompt string. A string replaces only
+  `prompt`; `medium` / `avoid` / `grade` / `title` still come from the built-in of the same name, so
+  rewording one preset never silently drops its filter and title colours
+- A missing `styles.json` is generated from the built-ins on first run. A broken one (invalid JSON,
+  a `"default"` pointing at a key that does not exist, a preset with no `prompt`) **fails loudly with
+  the location**, never falls back silently
+- The built-ins also live in code (`STYLE_PRESETS` in
+  [`daodaoshou/styles.py`](daodaoshou/styles.py)); same-named presets in `styles.json`
+  override them, so **upgrading the code will not overwrite your edits**
+- `ARK_IMAGE_SEED` in [.env.example](.env.example) fixes the seed for a steadier look and reproducible reruns
+- The style prompt is appended after each scene description by `compose_image_prompt()` — if the
+  pictures are wrong, run `--plan-only` first and check the descriptions themselves; changing the
+  style will not fix a bad storyboard
+- `--check-config` prints the active style, its `medium`, where it was loaded from, and the resolved
+  filter and title settings
 
-### 参考图锚定（实验性，默认关闭）
+### Matching every frame to one (experimental, off by default)
 
-`IMAGE_REFERENCE=anchor` 会先单独画一张「锚点」—— 第一张出现固定角色的镜头，没有固定角色
-就用第一镜 —— 之后每一张都把它缩小成 1280 宽的 JPEG，作为参考图（生图接口的 `image` 字段）
-一起发出去，并在提示词里写明：**只参考画风、配色和人物的脸、发型、衣服，不照抄它的构图、
-景别、主体和场景**。不写这一句，参考图会被读成「再画一遍这张」，每一格都是同一个房间。
+`IMAGE_REFERENCE=anchor` draws one frame first, on its own — the first shot to show the recurring
+cast, or the first shot if there is none — and sends every other frame with a copy of it, shrunk to a
+1280-wide JPEG, as a reference image (the images API's `image` field). The prompt says what the
+reference is for: **only the drawing style, the palette and the recurring people's faces, hair and
+clothes — not its composition, framing, subject or setting**. Without that line a reference reads as
+"draw this again", and every panel comes back as the same room.
 
-为什么值得试：默认情况下人物和画风只靠文字守住 —— 同一段角色描述、同一段画风提示词发给
-每一张图，漏过去的色温漂移再用一层很淡的滤镜压。一张图比一句话更能守住一张脸和一种色调。
+Why it is worth trying: by default the cast and the look are held together by words alone — the same
+character description and style prompt in every request — with a light grade over whatever drift gets
+through. A picture holds a face and a palette far better than a sentence does.
 
-为什么默认关：效果取决于生图模型和套餐是否支持参考图输入，而且它不像这里其他参数那样对着
-参考视频量过。接口不支持时会直接报错并点名这一项（被拒绝的请求不计费），改回 `off` 再
-`--resume` 即可；带参考图是否另计费以控制台为准。它只影响之后新画的镜头 —— 已经画好的不会
-因为改了这一项就重画。
+Why it is off: it is only as good as the model's and the plan's support for reference images, and it
+has not been measured against the reference video the way everything else here has. An endpoint that
+rejects it fails with a message naming this setting (a rejected request is not billed); set it back to
+`off` and `--resume`. Check the console for whether a reference changes the price. It applies to
+frames drawn from then on — frames already drawn are not redrawn because it changed.
 
 ---
 
-## BGM 按文案自动挑
+## What the frame is of
 
-`assets/bgm/`（或 `BGM_LIBRARY` 指向的任意目录）里放一批音乐，**文件名以中文情绪
-标签开头**，程序就会按文案挑一首垫在全片底下：
-
-```text
-紧张Kill Drill - Robert Ruth.mp3
-紧张危机Dismantle - Peter Sandberg.mp3
-舒缓Keep on the Sunny Side - 岩崎太整.mp3
-开头失落IV - AK,Mapps.mp3
-```
-
-标签就是文件名开头那一段连续的中文，到第一个非中文字符为止 —— 所以结尾处的中文
-歌手名不会被当成标签。可用标签：
-
-```text
-紧张  危机  焦虑  疑问  疑惑  失落  转机  升华
-欢乐  舒缓  平淡  解释  讲解  措施  解决
-```
-
-**情绪是分镜阶段顺手问出来的，不额外花一次请求。** 分镜模型本来就要为每一批文案
-调用一次，这里只是在同一次调用里多要一个 `mood` 字段。模型没给、或者续跑的是旧
-manifest 时，退回按文案里出现的词来判断，跑不起来的情况没有。
-
-几条挑选规则，都是为了避免「配错的音乐」这种没人会复查的错误：
-
-| | 怎么挑 |
-| --- | --- |
-| 多标签优先 | 文案判成「紧张 + 危机」时，`紧张危机…` 排在只标 `紧张…` 的前面 |
-| 位置标签排后 | `开头` / `结尾` / `后期` / `提出` 是写给某一段用的；整片垫底时排在同情绪的无前缀曲目之后。**排后面而不是排除** —— 曲库里只有它时照样会用 |
-| 对不上就不放 | 一首都不匹配时不加 BGM。配错的音乐比没有音乐更干扰 |
-| 同分按文件名 | 两首标签一样时固定取文件名靠前的那首，重跑和 `--resume` 挑到的是同一首 |
-| 指定优先 | 填了 `BGM_PATH` 就用那一首，完全不看曲库 |
-
-跑完那一行 `BGM: 紧张/危机 -> 紧张危机Dismantle - Peter Sandberg.mp3` 会打在终端上，
-也记进 `run.log`。`--check-config` 会告诉你曲库在哪、有几首、有几首带得上标签。
-
-**音量落在人声以下 20–25 dB。** 人声底下 `0.056`（-25 dB），气口里抬到 `0.10`
-（-20 dB）。以前空档抬到 0.20，也就是 -14 dB —— 那已经是「音乐」而不是「气氛」，
-是整条混音里唯一响到能和下一句旁白抢注意力的东西。
-
----
-
-## 画面的主体
-
-一张图只画**一个主体**，其余都是陪衬。这一条以前两头都没有，而且**正好写反了**。
-
-以前给生图模型的提示词里有这么一句：
+One picture, one subject, everything else in support. Neither end used to say
+so, and the image prompt said the **opposite** in as many words:
 
 ```text
 do not visually overemphasize one incidental detail
-（不要过分强调某一个细节）
 ```
 
-本意是「别抓着句子里一个无关的词猛画」，但模型读到的是「什么都别强调」。
-于是回来的画面里，人、桌子、窗户、墙上的挂钟都用同样的线宽、同样的密度画，
-眼睛没有落点 —— 在手机上看就是一片线，不是一张画。
+That was written against a real failure - seizing on a passing noun and
+drawing that - but read as written it forbids emphasising anything, and that
+is what came back. The person, the table, the window and the clock on the wall
+all drawn at one size, one line weight and one level of detail, with nothing
+for the eye to land on. On a phone that reads as texture, not as a picture.
 
-现在两边都改了：
-
-**一、分镜阶段必须先点名主体。** 每个镜头多一个 `subject` 字段，要求是
-「两到五个英文词，一个画得出来的东西」：
+**The director now names the subject before it writes the description.** Each
+scene carries a `subject`: two to five English words for something that can be
+drawn.
 
 ```json
-{"text": "她把手机扣在桌上", "subject": "a woman placing a phone face-down",
+{"text": "She placed the phone face-down on the table", "subject": "a woman placing a phone face-down",
  "image_prompt": "...", "shot_size": "close"}
 ```
 
-不能填抽象词（`pressure`、`regret`、`焦虑`），不能填一整个场景，也不能用 `and`
-连两样东西。**单独开一个字段，是因为字段只能填一个答案，而一段描述可以悄悄塞进四个。**
-这正是以前的失败方式：「一句话一张图」被读成了「把这句话里的所有东西画进一张图」。
+Never an abstraction (`pressure`, `regret`), never a whole scene, never two
+things joined by `and`. **A separate field is the point**: a field holds one
+answer where a description can quietly hold four, which is exactly how "one
+image per sentence" turned into "everything in the sentence, in one image".
+`--plan-only` prints it, so it is the first thing to read when a frame is
+wrong.
 
-`--plan-only` 会把它一起打印出来，画面不对时先看这里。
-
-**二、生图阶段按主体排优先级。** 提示词里现在写的是一条明确的层级：
+**The image prompt states a hierarchy** instead of forbidding one:
 
 | | |
 | --- | --- |
-| 主体 | 最大、最清楚、细节最多、和背景对比最强；放在正中或三分线交点 |
-| 陪衬 | 必须看起来次要 —— 更小、更平、线更少、对比更弱，且不许压住主体的轮廓 |
-| 留白 | 至少三分之一画面留空。**铺满整个画幅的画没有主体** |
-| 缩略图 | 画面缩到一英寸宽时主体仍要认得出来，靠的是剪影和明暗，不是靠描边 |
-| 一张就是一张 | 不许拼图、左右分屏、前后对比、九宫格、画中画、一排图标 |
+| Subject | largest, sharpest, most detailed, most contrast against what is behind it; dead centre or on a thirds intersection |
+| Support | visibly subordinate - smaller, flatter, fewer marks, less contrast - and never crowding the subject's outline |
+| Ground | at least a third of the frame left quiet. **A frame filled edge to edge has no subject** |
+| Thumbnail | the subject stays identifiable an inch wide, carried by silhouette and tone rather than by an outline |
+| One picture | never a collage, a split screen, a before-and-after pair, a grid of panels, an inset or a row of icons |
 
-**三、景别决定画面里能放几样东西。** 同一个数字同时发给分镜导演和生图模型，
-所以导演不会要一个画面装不下的东西：
+**Framing decides how much may share the frame.** The same number goes to the
+director and to the image model, so a brief cannot ask for more than the
+picture is allowed to draw:
 
-| 景别 | 主体占画高 | 除主体外最多几样 |
+| Shot | Subject fills | Supporting elements |
 | --- | --- | --- |
-| `wide` 全景 | 约 1/3 | 4 |
-| `medium` 中景 | 约 2/3 | 2 |
-| `close` 特写 | 至少 3/4 | 1 |
+| `wide` | ~1/3 of frame height | 4 |
+| `medium` | ~2/3 | 2 |
+| `close` | at least 3/4 | 1 |
 
-**四、按大众审美取景，而不是按巧思。** 分镜导演现在被明确要求：
+**And the reading is chosen for a general audience, not for cleverness.** The
+director is told: these are watched on a phone and judged in the first
+half-second, so take the reading a general viewer finds legible over the
+cleverest one.
 
-- 手机上看的片子，第一眼定生死，**选普通观众一眼看懂又好看的那个方案**，不是最聪明的那个
-- **不要默认画人。** 场景、物件、人三者同等，每批里必须有几格以场景或物件为主体
-- 句子讲的是心情，**常常由那个房间来承担** —— 没铺的床、凉掉的饭、一直没开的门；
-  只有当「表情本身就是信息」时才用脸
-- 必须落到一个**具体的、有家具的房间**：说清是哪个房间，摆上两三样说明「这是谁的
-  房间、几点钟」的道具，再给一个光源。空背景会让主体像剪贴上去的
-- 一格**最多一个象征元素，而且要长在房间里** —— 门口站一个剪影读得懂，
-  悬空的一排图标读不懂。示意图、图表、悬浮的一堆物件都不行
-- 姿势和表情要普通、要读得懂，不要舞台腔
+**It must not default to a person.** A place, an object and a person are
+equally valid subjects, and a sentence about how somebody feels is often better
+carried by the room they feel it in - an unmade bed, a cold meal, a door that
+stays shut - than by a face. A face is for when the expression *is* the
+information. Every batch has to include frames whose subject is a place or an
+object.
 
-### 默认画风：整幅上色，冷调深蓝，一盏暖灯
+**And the room has to be furnished.** The director names the room, puts the two
+or three ordinary props in it that say whose room it is and what time it is, and
+gives it one light source. An empty backdrop reads as a cut-out.
 
-七张参考图里，有五张是**整幅上色的室内场景**：咖啡馆、客厅、卧室、宴席、电脑桌。
-黑色墨线勾边、平涂加少量柔和渐变，墙、阴影、家具都落在冷调的深蓝里，只有一个暖光源
-（台灯、窗、屏幕）把琥珀色打在主体上 —— **冷暖对比本身就是这套画风**。
-房间是真实的、摆满了东西的；远处的墙和窗框可以留成浅色线稿，但主体从不是线稿。
+At most one symbolic element per frame, and it has to live in the room: a
+silhouette standing in a doorway reads; a row of icons on a blank ground does
+not. No diagrams, charts or floating clusters of objects.
 
-上一版把参考图读成了「白线房间 + 上色主体」，那只对两张图成立。它真正出图时的样子是：
+### The default style: fully painted, cool navy, one warm lamp
 
-| | 上一版 | 现在 |
+Five of the seven reference frames are **fully painted interiors** — a café, a
+living room, a bedroom, a banquet table, a desk. Black ink outlines, flat fills
+with soft gradients where light falls, walls and shadow and furniture in a cool
+navy palette, and one warm practical source — a lamp, a window, a screen —
+laying amber across the subject. **That warm-against-cool contrast is the
+look.** Rooms are real and furnished; distant walls may be left as pale line,
+but the subject never is.
+
+The previous version read the references as "white line room, painted subject",
+which is true of two of them. Here is what it actually drew:
+
+| | previous | now |
 | --- | --- | --- |
-| 同一格「昏暗的楼道」 | 画面中下方一个小方框里的线稿楼梯，约 65% 是空的深蓝 | 整幅上色的楼道铺满画面：冷蓝的墙和旧台阶，门口一盏暖灯把门照亮 |
+| the same "dim apartment stairwell" frame | a line-drawn staircase in a small box, low in the frame, ~65% bare navy | a fully painted stairwell filling the frame: cool blue walls and worn steps, one warm lamp lighting the door |
 
-造成「空」的是三条规则叠在一起，现在都改了：
+Three rules were compounding into the emptiness, and all three changed:
 
-- 构图里的「至少留三分之一空白」→ 主体周围留出空间，但**画面要铺满整个场景**
-- 画风里的「大片既没有线也没有颜色的深蓝」→ 删掉，并明确写上「不要扁平矢量图标、不要空背景」
-- 全景时主体只占「三分之一画高」→ 对人合适，对**地点**就把它缩成了图标。现在主体是地点时，地点铺满画面
+- composition's "leave at least a third of the frame empty" → clear space around the subject, but **the frame is a whole scene**
+- the style's "large areas of unbroken navy" → gone, and "no flat vector icons, no plain empty background" added
+- a wide shot drew its subject at a third of the frame height — right for a person, and it shrank a **place** to an icon. A place now fills the frame
 
-> 改动同时落在代码内置默认和仓库里的 `styles.json` 上。运行时以 `styles.json` 为准，
-> 只改代码是不生效的 —— 测试里有一条就在盯这个。
+> The change lands in the built-in default *and* in the repository's
+> `styles.json`. The file wins at runtime, so editing only the code would have
+> changed nothing — there is a test watching for exactly that.
 
 ---
 
-## 分镜用哪个模型
+## Title and caption typography
 
-填了 `DEEPSEEK_API_KEY` 分镜就走 DeepSeek 官方接口，留空则走方舟。**生图和配音始终走方舟 Agent Plan**，不受影响。
+These numbers were measured frame by frame off the reference video (1920x1080), not estimated:
 
-同一段六镜头文案实测：
-
-| | 关掉「思考」 | 不关 |
+| | Reference video | Default here |
 | --- | --- | --- |
-| DeepSeek 官方 `deepseek-chat` | **6 秒** | — |
-| 方舟 `deepseek-v4-flash`（默认） | 15 秒 | 推理了四万多字，240 秒都没吐出一个字的分镜 |
-| 方舟 `doubao-seed-2.0-lite` | 27 秒 | 98 秒 |
+| Caption size | ~66 px | `NARRATION_SUBTITLE_SIZE=6.8` → ~67 px |
+| Caption position | block centre at 86% of frame height | `NARRATION_SUBTITLE_Y=-700` → 86.5% |
+| Caption plate | translucent dark plate, ~1.5 line heights | `SUBTITLE_STYLE=plate` |
+| Title size | ~191 px (18% of frame height) | `TITLE_SIZE=19.5` → ~191 px |
+| Title position | block centred on the frame | `TITLE_Y=0` |
+| Title line pitch | 182 px (0.95 em) | `TITLE_LINE_PITCH=0.95` |
+| Title duration | ~2.4 s (stretched when the voice runs longer) | `TITLE_SECONDS=2.4` |
 
-**分镜请求现在总是关掉模型的「思考」。** 以前没关：模型会先推理几分钟，期间一个字都不回，
-而这条网络路径大约 69 秒没有数据就会掐断连接 —— 表现出来就是
-「Network request failed after 3 attempts」，看着像网络问题，其实是模型还在想。
+### The opening: cue, spoken title, copy
 
-同时分镜改成了**流式请求**：边生成边收，连接不会因为空闲被掐。中途被掐断会整条重来，
-因为半截 JSON 不是分镜。万一模型还是只推理不作答（有的服务会忽略关掉思考的参数），
-错误信息会直接点名是哪个模型、推理了多少字，而不是报一个「JSON 格式错误」。
-
----
-
-## 标题与字幕的排版
-
-这一段的数字是从参考视频（1920x1080）上一帧一帧量出来的，不是估的：
-
-| | 参考视频 | 本工具默认值 |
-| --- | --- | --- |
-| 字幕字号 | 约 66 px | `NARRATION_SUBTITLE_SIZE=6.8` → 约 67 px |
-| 字幕位置 | 整块中心在画面 86% 高处 | `NARRATION_SUBTITLE_Y=-700` → 86.5% |
-| 字幕底板 | 半透明深色板，约 1.5 倍行高 | `SUBTITLE_STYLE=plate` |
-| 标题字号 | 约 191 px（画面高度的 18%） | `TITLE_SIZE=19.5` → 约 191 px |
-| 标题位置 | 整块居中 | `TITLE_Y=0` |
-| 标题行距 | 182 px（0.95 字号） | `TITLE_LINE_PITCH=0.95` |
-| 标题时长 | 约 2.4 秒（配音更长时自动跟着延长） | `TITLE_SECONDS=2.4` |
-
-### 开场：音效、标题配音、正文
-
-开场标题现在会被念出来。以前它只是画在画面上：`--title` 给的标题正文里根本没有，
-所以整条视频是以一句无声的大字开场的。
+The opening title is read aloud now. It used to be drawn and never spoken —
+and a `--title` says something the copy does not, so every video opened on a
+silent piece of large type.
 
 ```
-0.00s  开场音效响，标题出现
-0.45s  标题配音（念在音效的尾音上，不压在那一声“咚”上面）
-~2.1s  正文第一句
+0.00s  the opening cue lands, the title appears
+0.45s  the title's voice, into the cue's decay rather than over its impact
+~2.1s  the first line of the copy
 ```
 
-`OPENING_LEAD_SECONDS`（0.8 秒）从此是**下限而不是答案**：标题念多久，开头就等多久，
-再加 0.25 秒换气。0.8 秒够那声音效落地，大约只够半句标题——不加长的话，正文会直接
-压在标题自己的配音上。标题字幕也会跟着一起停留到念完为止。
+`OPENING_LEAD_SECONDS` (0.8 s) is now a **floor, not the answer**: the head
+holds for as long as the title takes to read, plus a 0.25 s breath. 0.8 s fits
+the cue landing on its own and about half a spoken title — left alone, the copy
+talks over the title's own voice. The overlay is held to match, so the title
+never vanishes mid-sentence.
 
-标题不另外做字幕：画面正中央那块大字就是它的字幕。
+The title gets no caption of its own: the large type in the middle of the frame
+is its caption.
 
-**标题和开头意思重复时不会被念第二遍。** 默认标题就是文案第一行，而第一行本来就在正文里、
-会被当成第一句念出来；再念一遍标题就是同一句话连说两次。
+**A title the opening already says is not spoken twice.** It defaults to the
+copy's first line, and that line is part of the copy the scenes narrate — so
+speaking it as well would say the same sentence twice in a row. The title only
+gets its own voice when it says something the copy does not, which is also the
+only case where the timeline gets longer.
 
-判断看的是**意思**，比的是**前两句**，不是只比第一句的字面前缀：
+The check is on **meaning**, across the **first two sentences**, not on an
+exact prefix of the first:
 
-- 分镜导演是会改写的，所以重复很少是「前缀」。同一个标题回到正文里常常长这样 ——
-  标题 `男人不能为女人做的3件事`，第一句 `有3件事，男人不要为女人做。` 字面上不是任何
-  前缀，听起来就是同一句话说了两遍。
-- 第一句常常是钩子，标题真正对应的那句话落在第二句。所以前两句都算。
+- The director rewrites as it splits, so a repeat is rarely a prefix. The title
+  `男人不能为女人做的3件事` comes back as `有3件事，男人不要为女人做。` — a
+  prefix of nothing, and the same sentence twice to anyone watching.
+- Sentence one is usually a hook, and the line the title was taken from lands in
+  sentence two. Both count.
 
-判定放得偏紧：宁可漏掉一个近似的，也不要把一个正文里根本没说过的标题给吞掉 ——
-那会让整条视频丢掉开场白，比结巴更糟。
+The thresholds are deliberately strict. Dropping the voice from a title the copy
+never says loses the opening line outright, which is a worse video than the
+stutter this prevents — so a near miss is left spoken.
 
-**标题配音默认是开着的**（`SPEAK_TITLE=1`）。填 `SPEAK_TITLE=0` 可以关掉，
-时间轴会完全回到标题只画不念的样子。
+**Speaking the title is on by default** (`SPEAK_TITLE=1`). Setting
+`SPEAK_TITLE=0` turns it off, and the timeline returns exactly to what it was
+when the title was drawn but never spoken.
 
-两处和以前不一样，值得单独说：
+Two things work differently from before and are worth spelling out.
 
-**标题是逐行一个图层的，颜色是逐字渐变的。** 每行一个文本段落、每行一条文本轨，
-行距因此归我们控制 —— 0.95 字号比任何文本控件的默认行距都紧，两行才会读成一整块。
+**The title is one text layer per line, and its colour runs character by character.** Each line is
+its own segment on its own text track, which puts the line pitch under our control — 0.95 em is
+tighter than any text default, and without it the two halves stop reading as one block.
 
-参考视频的标题从暖白渐变到正红。以前这里写的是「剪映不支持一个文本段落里分字上色」，
-只好第一行主色、后面几行强调色。其实这是 pyJianYingDraft 的限制，不是草稿格式的：
-文本的样式本来就是一组「字符区间 + 样式」，库只写一段。现在每个字单独一段填色，
-从第一个字的主色走到最后一个字的强调色，字体、描边、阴影都不变，只有颜色在走。
+The reference title ramps from warm white to crimson. This used to say Jianying cannot colour part of
+a text, so the first line took the primary and the rest the accent. That limit is pyJianYingDraft's,
+not the draft format's: a text's style is already a list of runs over character ranges, and the
+library writes one. Now every character gets its own fill, from the primary at the first character to
+the accent at the last, with the font, stroke and shadow unchanged — only the colour moves.
 
-渐变按阅读顺序走，但每一行基本守住自己那一端的颜色 —— 第一行读起来是暖白、末行是正红，
-只在行内往下一行的颜色偏一点。把渐变平均摊到每个字上试过：第一行尾巴会发粉，正红也不够冲。
-颜色在感知均匀的 OKLab 空间里插值，每个字走的「看起来的距离」一样。
+The ramp runs in reading order, but each line keeps the colour it reads as — the first warm white,
+the last crimson — and drifts part of the way towards its neighbour. Spread evenly over every
+character, compared on the rendered title, it turned the end of the first line pink and took the
+punch out of the crimson. Colours are mixed in the perceptual OKLab space, so every character moves
+the same visible distance.
 
-`TITLE_COLOR_MODE=lines` 可以换回每行一种颜色。`poster` / `marker` / `ink` 这三套配色
-默认就是每行一种颜色：套印的两个色鼓、马克笔和红笔、墨和印章，本来就不会互相渐变。
+`TITLE_COLOR_MODE=lines` brings back one colour per line. The `poster`, `marker` and `ink` colourways
+default to it: a risograph's two drums, a marker and a red pen, ink and a seal never blend on the real
+thing.
 
-**断行是自己挑的，不交给剪映的自动换行。** 断在哪里决定了整个开场的样子，而自动
-换行只看宽度。这里按两条中文排版规则挑：一行不能以黏住后字的字收尾（介词、否定、
-数词、能愿动词），下一行不能以黏住前字的字开头（的、了、着、吗……）。同一个标题：
+**The break point is chosen here, not by auto-wrap.** Where a title breaks decides the shape of the
+whole opening frame, and auto-wrap picks it purely on width. Two Chinese line-breaking rules are
+applied instead: a line may not end on a character that binds to the word after it (coverbs,
+negations, numerals, modals), and the next may not start with one that binds to the word before it
+(的, 了, 着, 吗 …). The same title:
 
 ```text
-自动换行（只看宽度）      本工具
-男人不能为女              男人不能为女人
-人做的3件事               做的3件事
+auto-wrap (width only)     this tool
+男人不能为女               男人不能为女人
+人做的3件事                做的3件事
 ```
 
-想手动指定断点，直接在 `--title` 里写换行符即可，程序会原样照排。
-标题太长（超过三行放不下）时字号会自动缩小，而不是让剪映再折一行 —— 否则多出来
-的那一行会脱离上面算好的行距。
+Write a newline into `--title` to set the break yourself; it is used verbatim. A title too long for
+three lines shrinks the type instead of letting Jianying wrap a fourth line, which would otherwise
+fall outside the pitch computed above.
 
 ---
 
-## 使用方法
+## Usage
 
-从 UTF-8 文本文件生成：
-
-```powershell
-python animated_caption_draft.py --draft-name my_story --title "示例标题" --input copy.txt
-```
-
-短文案可以直接传：
+From a UTF-8 text file:
 
 ```powershell
-python animated_caption_draft.py --draft-name demo --title "示例标题" --text "这里是文案。"
+python animated_caption_draft.py --draft-name my_story --title "Example title" --input copy.txt
 ```
 
-只看分镜方案，不生成媒体（仍会调用文本模型）。这一步只需要文本模型的 Key —— 本机没装剪映、还没选音色、没有开场音效都不影响；如果 `output/<草稿名>/` 里已经有分镜，需要加 `--replace` 才会重新规划：
+Short copy inline:
+
+```powershell
+python animated_caption_draft.py --draft-name demo --title "Example title" --text "Copy goes here."
+```
+
+Inspect the storyboard without generating media (this still calls the text model). It needs only the text model's key — no Jianying install, voice or opening cue; if `output/<draft-name>/` already holds a storyboard, add `--replace` to plan it afresh:
 
 ```powershell
 python animated_caption_draft.py --draft-name preview --input copy.txt --plan-only
 ```
 
-输出里能看到每一句被拆成什么、**主体是什么**、用什么景别、哪句是段落结尾、抽出了哪些角色。**画面不理想时先看这里** —— 画风提示词是拼在分镜描述之后的，如果 `subject` 选错了、或者 `image_prompt` 里塞了一整段场景，改画风没有用。
+The output shows how each line was split, its framing, which lines end a paragraph, and the cast that was extracted. **Start here when the pictures are wrong** — the style prompt is appended after the scene description, so if the description itself went astray, changing the preset will not help.
 
-### 先审分镜、改分镜，再出片
+### Review the storyboard, edit it, then make the video
 
-`--plan-only` 做出来的分镜就存在 `output/<草稿名>/manifest.json` 里。审完直接用 `--resume`
-接着出片，**用的就是你审过的这一份** —— 不会重新规划，也不会再为分镜付一次费：
+The storyboard `--plan-only` makes is saved in `output/<draft-name>/manifest.json`. Once you have
+reviewed it, carry on with `--resume`, and **the video is made from the storyboard you reviewed** —
+nothing is planned again, and the storyboard is not paid for twice:
 
 ```powershell
 python animated_caption_draft.py --draft-name my_story --input copy.txt --plan-only
-# 看输出；需要的话直接改 output/my_story/manifest.json 里某一镜的
-# text / subject / image_prompt / shot_size / pause_after
+# read the output; if needed, edit a scene's text / subject / image_prompt /
+# shot_size / pause_after directly in output/my_story/manifest.json
 python animated_caption_draft.py --resume my_story
 ```
 
-反过来，如果审完又从头跑一遍（不带 `--resume`），分镜会重新生成 —— 模型每次拆句都不一样，
-你审过的那一份就不是最后做出来的那一份了。
+Running the command again from scratch instead (without `--resume`) plans a new storyboard — the
+model splits the copy differently every time, so what you reviewed would not be what gets made.
 
-出片之后也可以这样改：改了某一镜的 `image_prompt` 再 `--resume`，只重画那一张；改了某一镜的
-`text`，只重念那一句（见[断点恢复](#断点恢复)）。
+The same works after the video is made: edit a scene's `image_prompt` and `--resume`, and only that
+frame is redrawn; edit its `text`, and only that line is re-read (see [Resuming](#resuming)).
 
-### 只重画某几张：`--redo`
+### Redraw only some frames: `--redo`
 
-提示词没问题、只是这一张画得不好时，不用改任何东西：
+When the prompt is fine and a frame simply came out badly, nothing needs editing:
 
 ```powershell
 python animated_caption_draft.py --resume my_story --redo 3,7 --replace
 ```
 
-`--redo` 接受 `3,7`、`3-5` 这样的写法，只重画点到的镜头，配音和其他画面全部复用。每重画一次
-就是一个新的 take：新画面是新文件，**上一张还留在磁盘上**，想换回去改 manifest 里的 `take` 即可。
-填了 `ARK_IMAGE_SEED` 时，每个 take 的种子会顺延一位 —— 同样的提示词加同样的种子，只会画出
-同一张图。草稿已经在剪映里时需要 `--replace`，和其他续跑一样。
+`--redo` takes `3,7` or `3-5`, redraws only those frames and reuses all the narration and every other
+frame. Each redraw is a new take: the new frame is a new file and **the previous one stays on disk** —
+set `take` back in the manifest to return to it. With `ARK_IMAGE_SEED` set, each take moves the seed on
+by one; the same prompt with the same seed only draws the same picture again. As with any resume, a
+draft already in Jianying needs `--replace`.
 
-| 参数 | 作用 |
+| Flag | Purpose |
 | --- | --- |
-| `--input` / `--text` | 文案来源，二选一 |
-| `--draft-name` | 剪映里的草稿名；省略则用时间戳 |
-| `--title` | 片头标题；省略则取文案首行 |
-| `--resume DRAFT_NAME` | 从断点续跑，复用已生成的素材；也用来按审过的分镜出片 |
-| `--redo 3,7` | 配合 `--resume`：只重画这几镜的画面（新的 take，上一张保留） |
-| `--replace` | 允许覆盖同名草稿（**会删掉整个草稿文件夹**） |
-| `--check-config` | 只校验配置和素材，不调用任何 API；所有问题一次列全 |
-| `--plan-only` | 只生成并打印分镜方案；只需要文本模型的 Key |
-| `--speed X` | 整片速度，覆盖 `.env` 里的 `VIDEO_SPEED` |
-| `--verbose` | 失败时打印完整调用栈 |
+| `--input` / `--text` | Where the copy comes from; pick one |
+| `--draft-name` | Draft name in Jianying; defaults to a timestamp |
+| `--title` | Title card; defaults to the first line of the copy |
+| `--resume DRAFT_NAME` | Continue a run, reusing assets that already succeeded; also makes a reviewed storyboard |
+| `--redo 3,7` | With `--resume`: redraw only these scenes' frames (a new take; the previous one is kept) |
+| `--replace` | Allow overwriting an existing draft (**deletes the whole draft folder**) |
+| `--check-config` | Validate configuration and assets without calling any API; every problem is listed at once |
+| `--plan-only` | Generate and print the storyboard only; needs only the text model's key |
+| `--speed X` | Global video speed; overrides `VIDEO_SPEED` in `.env` |
+| `--verbose` | Print a full traceback on failure |
 
 ---
 
-## 整片速度
+## Speed
 
-**默认 1.2 倍速。** 一个数管全片：`.env` 里的 `VIDEO_SPEED`，或者临时用 `--speed`。
+**1.2× by default.** One number for the whole video: `VIDEO_SPEED` in `.env`,
+or `--speed` for a single run.
 
 ```powershell
 python animated_caption_draft.py --draft-name my_story --input copy.txt --speed 1.5
 ```
 
-1.0 是基准 —— `.env` 里所有以秒计的设置、代码里所有时长常量，写的都是 1.0
-下的秒数，是什么就是什么。
+1.0 is the baseline. Every duration in `.env`, and every duration constant in
+the code, is written at 1.0 and means what it says there.
 
-它**不是语速设置**，这一点是这个功能的全部意义。只把配音调快
-（`ARK_TTS_SPEECH_RATE`）是做不到「片子变快」的：声音先跑完，画面还按原来的
-长度杵着，运镜还在慢慢爬 —— 看起来像配音没对上，不像片子变快了。
+It is deliberately **not** a voice setting, which is the whole point. Speeding
+the narration alone (`ARK_TTS_SPEECH_RATE`) does not produce a faster video: the
+voice finishes early over pictures still holding their old length and a camera
+move still crawling. That reads as a dubbing error, not as pace.
 
-1.2 倍速下具体发生了什么：
+What 1.2× actually does:
 
-| | 怎么变 |
-| --- | --- |
-| 旁白 | **重新用更快的语速念**，不是把音频加速，所以不变调 |
-| 每镜时长 | 量的是真实音频长度，自己就跟着短了，不可能和声音错位 |
-| 字幕 | 和旁白共用同一段时间轴，跟着走 |
-| 字幕入场动画 | ÷1.2 |
-| 片头标题、开场 lead、标题配音等待 | ÷1.2 |
-| 段落气口、结尾留白、BGM 抬降的斜坡 | ÷1.2 |
-| 运镜 | 速度 **×1.2**，镜头 ÷1.2 —— 一乘一除抵消，总幅度不变，就是同一个推镜播快了 |
-| BGM、开场音效 | **不变**。它们是音效不是节拍，那一声「咚」加速就不是那一声了 |
+| | at 1.2× |
+|---|---|
+| narration | **re-read** faster, not resampled, so there is no pitch shift |
+| shot lengths | measured from the audio that came back, so they follow on their own |
+| captions | cut from the same narration spans, so they cannot drift off it |
+| caption intro animation | ÷1.2 |
+| title card, opening lead, the wait before the title is read | ÷1.2 |
+| paragraph beats, ending hold, the music's duck ramp | ÷1.2 |
+| camera move | rate **×1.2** over a shot ÷1.2 — the two cancel, so the push crosses the same ground, just quicker |
+| music and the opening cue | **unchanged**. They are cues, not a clock, and the stinger played 1.2× is a different sound |
 
-规律就一句话：**时长除以速度，每秒的速率乘以速度，以像素计的一律不动。**
+The rule is one line: **a duration divides by speed, a per-second rate
+multiplies by it, and anything measured in pixels does not move.**
 
-范围 0.5–2.0，是语音接口本身的范围（语速偏移 -50 到 100）。超出这个范围，
-画面的节奏就不是配音念得出来的节奏了，那正是这个设置要避免的事，所以直接报错
-而不是悄悄夹到边界。
+The range is 0.5–2.0, which is the speech API's own (`speech_rate` is a
+percentage offset in [-50, 100]). Outside it the picture would be cut to a pace
+its own narration could not be spoken at — the very mismatch this setting
+exists to prevent — so it is refused rather than quietly clamped.
 
-改了速度再 `--resume`：**配音会按新速度重念，图片全部保留**。旧的配音是按旧
-速度念的，留着它就会把新时间轴剪到旧声音上，出来的片子哪个速度都不是，而每一步
-都会报成功。
-
----
-
-## 时间轴结构
-
-```text
-0s      lead                          段落气口                    最后一句
-|-------|--------|--------|--------|~~~~~~|--------|  ...  |--------|
- 音效+标题  第1句     第2句     第3句           第4句                最后一句
-
-[视觉]   一句一图，一图一镜到底；第 1 镜从 0s 就在，气口由前一张图撑着
-[旁白]   每句一段，句与句之间只有段落气口
-[字幕]   跟旁白对齐，带入场动画；气口里没有字幕
-[标题]   开头 2.4 秒（1.0 倍速下；按 VIDEO_SPEED 缩放），一行一条文本轨（title_overlay / ...），逐字渐变
-[音效]   开场一次
-[BGM]    按文案从曲库里挑一首；人声下压到 0.056，气口抬到 0.10；整轨循环，首尾淡入淡出
-[调色]   一条滤镜铺满全片
-```
-
-**片子在最后一句字幕结束的那一刻结束**，尾巴上不留空镜。想让画面多留一会儿
-（比如结尾有「欢迎评论」这类 CTA）就填 `ENDING_HOLD_SECONDS`。
-
-气口只出现在分镜模型标记为**段落结尾**的句子之后 —— 八个自然段的稿子会有七处呼吸点，而不是每句都停。
-
-**段落就是你文案里的空行。** 分镜导演看得到它们，并被明确告知「空行就是段落结束」；文案长到要分几批发给导演时，恰好切在空行上的那一批，最后一镜会直接标成段落结尾。以前所有换行在发给导演之前都被压成了一个，仓库自带的 `copy.txt` 五个自然段到它手里成了一整块，哪里该喘气全靠猜。没有空行的文案，仍由导演按意思判断。
+Changing the speed and then using `--resume` **re-reads the narration and keeps
+every image**. Narration read at another speed would put the new timeline on
+the old audio, giving a video at neither speed while every stage reported
+success.
 
 ---
 
-## 配置
+## Which model writes the storyboard
 
-全部配置项都在 [.env.example](.env.example) 里逐条注释。最常调的：
+Set `DEEPSEEK_API_KEY` and the director uses DeepSeek's own API; leave it empty
+and it stays on Ark. **Images and narration always use the Ark Agent Plan.**
 
-| 变量 | 默认值 | 说明 |
+Measured on one six-scene script, same brief:
+
+| | thinking off | thinking on |
 | --- | --- | --- |
-| `ARK_API_KEY` | 空 | 方舟 Agent Plan 密钥：生图、配音，以及没填 DeepSeek 时的分镜 |
-| `DEEPSEEK_API_KEY` | 空 | 填了就让分镜走 DeepSeek 官方接口（最快）；生图配音仍走方舟 |
-| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek 分镜模型 |
-| `ARK_TEXT_MODEL` | `deepseek-v4-flash` | 没填 DeepSeek 时方舟上的分镜模型 |
-| `ARK_TTS_VOICE_TYPE` | 示例音色 | 音色 ID |
-| `JIAN_YING_DRAFT_DIR` | 空 = 自动查找 | 本机剪映草稿根目录。留空则自动探测（含搬过位置的草稿库） |
-| `IMAGE_STYLE_PRESET` | `midnight` | 全片画风，九选一，取值见 [styles.json](styles.json) |
-| `IMAGE_STYLES_FILE` | 空 | 画风 JSON 路径，留空用仓库根目录的 `styles.json` |
-| `SCENE_CHARACTERS_PER_IMAGE` | `22` | 每镜头承载的中文字数，下限 8。**控制画面节奏的唯一参数**：调小 = 切得更快、图更多、成本更高 |
-| `SPEAK_TITLE` | `1`（**默认开启**） | 开场标题是否也配音。`0` 关掉，时间轴回到标题只画不念的样子 |
-| `TITLE_LEAD_SECONDS` | `0.45` | 标题配音比开场音效晚多久开口（1.0 倍速下） |
-| `VIDEO_SPEED` | `1.2` | **整片速度**，1.0 为基准；配音、画面、运镜、字幕一起变，见上一节 |
-| `KEN_BURNS_RATE` | `0.035` | 运镜速度，每秒走过画面的比例（会乘以 `VIDEO_SPEED`） |
-| `PARAGRAPH_PAUSE_SECONDS` | `0.5` | 段落结尾的气口长度（1.0 倍速下） |
-| `ENDING_HOLD_SECONDS` | `0` | 最后一句之后画面再留多久（1.0 倍速下）。默认不留 |
-| `BGM_PATH` | 空 | 固定用这一首 BGM，填了就不看曲库 |
-| `BGM_LIBRARY` | 空 = `assets/bgm` | BGM 曲库目录，按文件名的情绪标签自动挑 |
-| `BGM_VOLUME` / `BGM_LIFT_VOLUME` | `0.056` / `0.10` | 人声下 / 空档里的 BGM 音量（-25 / -20 dB） |
-| `COLOR_GRADE` | 空 = 跟随画风 | 全片统一滤镜，`none` 关闭 |
-| `NARRATION_SUBTITLE_Y` | `-700` | 字幕位置，见下 |
-| `NARRATION_SUBTITLE_SIZE` | `6.8` | 字幕字号，约合 67 px |
-| `SUBTITLE_STYLE` | `plate` | `plate` 白字加深色底板 / `outline` 白字黑边 / `box` 旧版 |
-| `SUBTITLE_FONT` | `SourceHanSansCN_Medium` | 字幕字体，任何剪映自带字体名 |
-| `TITLE_STYLE` | 空 = 跟随画风 | 标题配色：`crimson` / `paper` / `ink` / `white` / `gold` / `poster` / `electric` / `marker` |
-| `TITLE_COLOR_MODE` | 空 = 跟随配色 | `ramp` 逐字从主色渐变到强调色 / `lines` 第一行主色、其余强调色 |
-| `TITLE_FONT` | `优设标题黑` | 标题字体 |
-| `TITLE_SIZE` / `TITLE_Y` | `19.5` / `0` | 标题字号与位置，默认与参考视频一致 |
-| `IMAGE_CONCURRENCY` | `3` | 生图并发，遇到 429 就调小 |
-| `ARK_IMAGE_CNY_PER_IMAGE` | 空 | 单张价格（元），只用于终端里的金额估算 |
-| `MAX_IMAGES` | 空 = 不设上限 | 一次运行最多画几张；超过就在配音和生图之前停下（分镜已保存） |
-| `IMAGE_REFERENCE` | `off` | `anchor` = 先画锚点、其余每张带着它当参考图（实验性，见[参考图锚定](#参考图锚定实验性默认关闭)） |
+| DeepSeek API `deepseek-chat` | **6s** | — |
+| Ark `deepseek-v4-flash` (default) | 15s | 40,000+ characters of reasoning and no storyboard in 240s |
+| Ark `doubao-seed-2.0-lite` | 27s | 98s |
 
-### 布局坐标的单位
+**The storyboard request now always turns the model's thinking off.** It used
+not to: the model reasoned for minutes, sent nothing while it did, and this
+network path drops a connection silent for about 69s — which surfaced as
+"Network request failed after 3 attempts", a network error that was really a
+model still thinking.
 
-`NARRATION_SUBTITLE_Y` 和 `TITLE_Y` 的单位是**以 1920 高为基准的像素**，与实际画布高度无关（正数向上，负数向下）：
-
-```text
-transform_y = 配置值 / 960          剪映的可见范围是 -1 到 1
--700  ->  -0.729   横屏 1080 画布上离底边约 146 px，标准字幕位置
-+520  ->  +0.542   上三分之一，标题位置
-```
-
-超出可见范围的值会被自动收进安全区。`--check-config` 会直接打印每一层的实际落点，以及每个关键配置的**来源**（`.env` / 系统环境变量 / 默认值）—— 系统里有同名变量时优先级更高会盖掉 `.env`，这一行能省很多排查时间。
+The call also **streams** now, so the connection stays busy while the answer is
+written. A stream cut midway is started again, since half a JSON object is not
+a storyboard. And if a model reasons without ever answering — some providers
+ignore the flag — the error names the model and how much it reasoned, instead
+of reporting a JSON parse failure.
 
 ---
 
-## 断点恢复
+## Music picked from the copy
 
-每次任务的全部状态都保存在：
+Put a folder of music at `assets/bgm/` (or point `BGM_LIBRARY` anywhere else)
+with a **Chinese mood label at the start of each filename**, and one bed is
+chosen for the video:
 
 ```text
-output/<草稿名>/
-  manifest.json    分镜、角色、各素材路径，以及所用的速度、音色和画风
-  failures.json    失败记录
-  run.log          逐事件日志
-  audio/           01_3fa9c2e1d0.mp3, 02_…  （镜头编号 + 它的输入摘要）
+紧张Kill Drill - Robert Ruth.mp3
+紧张危机Dismantle - Peter Sandberg.mp3
+舒缓Keep on the Sunny Side - 岩崎太整.mp3
+```
+
+The label is the run of Chinese characters the filename opens with, up to the
+first character that is not Chinese — so a Chinese artist name at the END is not
+mistaken for one. The labels available:
+
+```text
+紧张 tense    危机 crisis     焦虑 anxious   疑问 questioning
+疑惑 puzzled  失落 downcast   转机 a turn    升华 uplift
+欢乐 joyful   舒缓 calm       平淡 plain     解释 explaining
+讲解 walking through          措施 remedies  解决 resolving
+```
+
+**The mood comes from the storyboard call that already runs**, as one extra
+field on it — not a second request per video. When the model returns none, and
+on a `--resume` from a manifest written before this existed, the words in the
+copy itself answer instead, so a run never fails for want of a label.
+
+| | how it picks |
+| --- | --- |
+| more labels win | a copy read as 紧张 + 危机 takes `紧张危机…` over a plain `紧张…` |
+| positional labels rank down | `开头` / `结尾` / `后期` / `提出` are written for one stretch of a video; under a whole one they sit below an unprefixed track of the same mood. **Ranked down, not excluded** — a library with nothing else still supplies music |
+| no match means no music | the wrong bed is more distracting than none, and this is the one choice in the video nobody reviews |
+| ties break by filename | two tracks labelled alike always resolve the same way, so a rebuild or a `--resume` keeps the same music |
+| an explicit track wins | `BGM_PATH` is somebody naming a track; the library is not consulted |
+
+The line `BGM: 紧张/危机 -> 紧张危机Dismantle - Peter Sandberg.mp3` is printed at
+the end of a run and recorded in `run.log`. `--check-config` reports where the
+library is, how many tracks are in it, and how many carry a label.
+
+**The bed sits 20–25 dB under the voice.** `0.056` (-25 dB) under speech,
+lifting to `0.10` (-20 dB) in the gaps. The lift used to be 0.20 — 14 dB down,
+which is music rather than atmosphere, and the only thing in the mix loud enough
+to compete with the line that follows the gap it fills.
+
+---
+
+## Timeline layout
+
+```text
+0s     lead                          paragraph beat              last line  hold
+|------|-------|-------|-------|~~~~~~~|-------|  ...  |-------|~~~~~~~~~~|
+ SFX+title  line 1  line 2  line 3          line 4              last line
+
+[visuals]  one image per line, running whole; the outgoing picture covers the
+           beats and the ending hold, so a pause never shows as black
+[narration] one segment per line, separated only by the paragraph beats
+[captions] aligned to the narration, with an intro animation; silent in the beats
+[title]    first 2.4s at 1.0x, scaled by VIDEO_SPEED; one text track per line
+           (title_overlay, title_overlay_2, ...), colour ramping character by character
+[SFX]      once, at the open
+[BGM]      picked from the library by mood; 0.056 under speech, 0.10 in the
+           gaps; looped, faded at both ends
+[grade]    one filter across the whole video
+```
+
+Beats appear only after lines the storyboard model marks as **ending a paragraph** — eight paragraphs give you seven places to breathe, not a stop after every sentence.
+
+**A paragraph is a blank line in your copy.** The director sees them and is told that a blank line ends a paragraph; when long copy is sent in parts and a part is cut at a blank line, that part's last scene is marked as a paragraph end directly. Every run of newlines used to be collapsed into one before the director saw the copy, so the five paragraphs of the bundled `copy.txt` arrived as a single block and the breaths were a guess. Copy without blank lines is still judged by meaning.
+
+---
+
+## Configuration
+
+Every setting is documented inline in [.env.example](.env.example). The ones you will actually touch:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ARK_API_KEY` | empty | Ark Agent Plan key: images, narration, and the storyboard when no DeepSeek key is set |
+| `DEEPSEEK_API_KEY` | empty | Send the storyboard to DeepSeek's own API (fastest); images and narration stay on Ark |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek storyboard model |
+| `ARK_TEXT_MODEL` | `deepseek-v4-flash` | Storyboard model on Ark when no DeepSeek key is set |
+| `ARK_TTS_VOICE_TYPE` | sample voice | Voice ID |
+| `JIAN_YING_DRAFT_DIR` | empty = auto | Local Jianying draft root. Found automatically when empty, including a relocated library |
+| `IMAGE_STYLE_PRESET` | `midnight` | Whole-video art direction, one of nine; see [styles.json](styles.json) |
+| `IMAGE_STYLES_FILE` | empty | Path to the styles JSON; empty uses `styles.json` in the repo root |
+| `SCENE_CHARACTERS_PER_IMAGE` | `22` | Chinese characters per shot, floor of 8. **The only pacing control**: lower means faster cuts, more images, higher cost |
+| `SPEAK_TITLE` | `1` (**on by default**) | Whether the opening title is read aloud. `0` turns it off and the title is drawn but never spoken |
+| `TITLE_LEAD_SECONDS` | `0.45` | How long after the opening cue the title's voice starts (at 1.0×) |
+| `VIDEO_SPEED` | `1.2` | **Global speed**, 1.0 is the baseline; narration, picture, camera and captions move together — see above |
+| `KEN_BURNS_RATE` | `0.035` | Camera speed as a fraction of frame per second (multiplied by `VIDEO_SPEED`) |
+| `PARAGRAPH_PAUSE_SECONDS` | `0.5` | Beat inserted after a paragraph (at 1.0×) |
+| `ENDING_HOLD_SECONDS` | `0` | How long the last picture holds after the final word (at 1.0×). Nothing, by default |
+| `BGM_PATH` | empty | One named track; set it and the library is not consulted |
+| `BGM_LIBRARY` | empty = `assets/bgm` | Folder of music, matched to the copy by the mood label on each filename |
+| `BGM_VOLUME` / `BGM_LIFT_VOLUME` | `0.056` / `0.10` | Music level under speech / in the gaps (-25 / -20 dB) |
+| `COLOR_GRADE` | empty = follows the style | Whole-video filter; `none` disables |
+| `NARRATION_SUBTITLE_Y` | `-700` | Caption position; see below |
+| `NARRATION_SUBTITLE_SIZE` | `6.8` | Caption size, about 67 px |
+| `SUBTITLE_STYLE` | `plate` | `plate` white on a dark plate / `outline` white with a stroke / `box` the old style |
+| `SUBTITLE_FONT` | `SourceHanSansCN_Medium` | Caption font; any Jianying font name |
+| `TITLE_STYLE` | empty = follows the style | `crimson` / `paper` / `ink` / `white` / `gold` / `poster` / `electric` / `marker` |
+| `TITLE_COLOR_MODE` | empty = follows the colourway | `ramp` runs from the primary to the accent character by character / `lines` first line primary, the rest accent |
+| `TITLE_FONT` | `优设标题黑` | Title font |
+| `TITLE_SIZE` / `TITLE_Y` | `19.5` / `0` | Title size and position; defaults match the reference video |
+| `IMAGE_CONCURRENCY` | `3` | Image workers; lower it on HTTP 429 |
+| `ARK_IMAGE_CNY_PER_IMAGE` | empty | Price per image (CNY), used only for the estimate the terminal prints |
+| `MAX_IMAGES` | empty = no cap | Most frames one run may draw; over it the run stops before narration and images (the storyboard is kept) |
+| `IMAGE_REFERENCE` | `off` | `anchor` draws one frame first and sends it with every other frame as a reference (experimental; see [Matching every frame to one](#matching-every-frame-to-one-experimental-off-by-default)) |
+
+### Layout coordinate units
+
+`NARRATION_SUBTITLE_Y` and `TITLE_Y` are **pixels against a 1920-tall reference frame**, independent of the actual canvas height (positive is up):
+
+```text
+transform_y = value / 960          Jianying's visible range is -1 to 1
+-700  ->  -0.729   about 146 px above the bottom edge of a 1080-tall canvas
++520  ->  +0.542   upper third, where the title sits
+```
+
+Out-of-range values are clamped into the safe area. `--check-config` prints where each layer actually lands, and the **source** of each key setting (`.env`, process environment, or default) — a stale shell variable silently shadowing `.env` is otherwise very hard to spot.
+
+---
+
+## Resuming
+
+Every run keeps its full state under:
+
+```text
+output/<draft-name>/
+  manifest.json    scenes, cast, asset paths, the speed, voice and style used
+  failures.json    what went wrong
+  run.log          per-event log
+  audio/           01_3fa9c2e1d0.mp3, 02_…  (scene number + a digest of its inputs)
   images/          01_b41f09aa2c.png, 02_…
 ```
 
-已成功的素材会被复用，只补跑缺失的部分：
+Assets that already succeeded are reused; only what is missing is retried:
 
 ```powershell
 python animated_caption_draft.py --resume my_story
 ```
 
-**每个文件都以「做出它的输入」命名。** 镜头编号后面那一串是输入的摘要：配音包括
-文字、音色、语速和响度；画面包括 `image_prompt`、`subject`、景别、角色设定、画风、
-模型、尺寸和种子。只有这些全部对得上，文件才会被复用：
+**Every file is named after what made it.** The digest after the scene number
+covers everything that decides the file's content — for a clip: the text, the
+voice, the speech rate and loudness; for a frame: `image_prompt`, `subject`,
+the shot size, the cast descriptions, the style, the model, size and seed.
+A file is reused only when all of that still matches, so:
 
-| 你改了什么 | 下次运行会怎样 |
+| You changed | What happens on the next run |
 | --- | --- |
-| 什么都没改（失败后 `--resume`） | 已完成的全部复用，只补缺的 |
-| 速度 | 配音按新速度重念，图片全部保留 |
-| `ARK_TTS_VOICE_TYPE` | 每一句和标题都用新音色重念 |
-| `IMAGE_STYLE_PRESET` / `IMAGE_STYLE_PROMPT` | 每一张都按新画风重画（会计费），配音保留 |
-| `manifest.json` 里某一镜的 `image_prompt` | 只重画这一张 |
-| `manifest.json` 里某一镜的 `text` | 只重念这一句，画面保留 |
-| 新跑一次、沿用同一个 `--draft-name` | 只复用输入完全相同的文件，不会只凭编号拿旧文件 |
+| Nothing (`--resume` after a failure) | Everything that finished is reused; only the rest is made |
+| The speed | Narration is re-read at the new speed; every image is kept |
+| `ARK_TTS_VOICE_TYPE` | Every line and the title are re-read in the new voice |
+| `IMAGE_STYLE_PRESET` / `IMAGE_STYLE_PROMPT` | Every frame is redrawn in the new style (billed); narration is kept |
+| One scene's `image_prompt` in `manifest.json` | Only that frame is redrawn |
+| One scene's `text` in `manifest.json` | Only that line is re-read; its picture is kept |
+| The same `--draft-name` for a fresh run | Only files whose inputs are identical are reused; nothing is taken on its number alone |
 
-花钱之前，终端会先说清楚要重做什么、为什么，例如
+Before spending anything the run says what it is making again and why, e.g.
 `3 frame(s) will be drawn again: the style changed (midnight -> noir).`
 
-这是为了堵住「重跑时悄悄用错文件」。以前文件就叫 `01.mp3`，只凭编号被捡回来：
-失败后原样重跑一遍，分镜会重新拆句，结果每一句字幕底下都是在念另一句话的配音；
-改了画风再续跑，旧画面原封不动，却套上了新画风的滤镜和标题配色。两种情况都报成功。
+This is what stops a re-run from quietly reusing the wrong file. Files used to
+be called `01.mp3` and picked up by that number alone: re-running the same
+command after a failure re-splits the copy, and every subtitle ended up over a
+clip reading a different sentence; changing the style and resuming kept the old
+frames under the new style's grade and title. Both reported success.
 
-旧版本留下的任务（manifest 早于 v9、文件名是 `01.mp3`）在续跑时会像以前一样被信任一次，
-文件随即改名为对应的摘要名。崩溃中断的任务里已完成的文件也会被捡回来 —— 每个文件
-都先写到临时文件名、写完才改名，写到一半的文件不会顶着一个有效的名字。
+A run from an older version (manifest before v9, files named `01.mp3`) is
+trusted once when it is resumed, the way it always was, and its files are
+renamed to their keys. A crashed run's finished files are picked up too —
+every file is written to a temporary name and renamed only when complete, so a
+half-written file never sits under a valid name.
 
-> **覆盖同名草稿必须显式加 `--replace`，`--resume` 时也一样。** 覆盖会删除整个草稿文件夹，你在剪映里做过的手工修改会一起消失。操作前请先在剪映中关闭该草稿。
+> **Overwriting an existing draft requires `--replace`, including with `--resume`.** Overwriting deletes the whole draft folder, so any edits you made in Jianying go with it. Close the draft in Jianying first.
 
 ---
 
-## 开发
+## Development
 
 ```powershell
 python -m pip install -e ".[dev]"
@@ -704,90 +779,87 @@ python -m ruff check .
 ```
 
 
-代码按职责分在 `daodaoshou/` 包里，`animated_caption_draft.py` 只是命令入口（并把包里的名字原样转出，
-`import animated_caption_draft` 照旧能用）：
+The code lives in the `daodaoshou/` package, one module per job; `animated_caption_draft.py` is only
+the command (it re-exports the package's names, so `import animated_caption_draft` still works):
 
-| 模块 | 负责 |
+| Module | What it does |
 | --- | --- |
-| `config.py` | 全部配置，一次解析、问题一次列全；整片速度 |
-| `storyboard.py` | 分镜导演：拆句、主体、景别、段落、情绪 |
-| `images.py` / `tts.py` | 生图（含参考图锚定）/ 配音 |
-| `assets.py` | 按输入命名的素材文件，以及一次运行能复用什么 |
-| `draft.py` | 写剪映草稿：时间轴、字幕、标题、运镜、BGM、调色 |
-| `styles.py` / `layout.py` / `camera.py` | 画风与构图 / 字幕标题排版与配色 / 运镜 |
-| `bgm.py` / `title.py` / `jianying.py` | 曲库与闪避 / 开场标题 / 找剪映草稿目录 |
-| `state.py` / `report.py` / `net.py` / `env.py` | manifest 与日志 / 终端输出 / 带重试的 HTTP / `.env` |
-| `cli.py` | 命令本身：从文案到草稿的一次运行 |
+| `config.py` | Every setting, parsed once with every problem reported at once; the global speed |
+| `storyboard.py` | The director: splitting the copy, subjects, framing, paragraphs, mood |
+| `images.py` / `tts.py` | Pictures (including the anchor frame) / narration |
+| `assets.py` | Files named after their inputs, and what a run may reuse |
+| `draft.py` | The Jianying draft: timeline, captions, title, camera, music, grade |
+| `styles.py` / `layout.py` / `camera.py` | Looks and composition / caption and title type and colour / camera moves |
+| `bgm.py` / `title.py` / `jianying.py` | The music library and ducking / the opening title / finding the drafts folder |
+| `state.py` / `report.py` / `net.py` / `env.py` | Manifest and log / terminal output / HTTP with retries / `.env` |
+| `cli.py` | The command: one run from copy to draft |
 
-测试覆盖所有不需要调用付费接口的逻辑：
+The suite covers every piece of logic that does not call a paid API:
 
-- 布局坐标换算与安全区收敛
-- 运镜速率归一化、放大上限、横移不露边
-- 时间轴排布：镜头连续无缝、气口位置、结尾留白
-- BGM 循环、首尾淡入淡出、闪避包络（含"空档太短就不抬"）
-- BGM 曲库：标签解析、多标签优先、位置标签排后、对不上就不放、同分可复现
-- 剪映草稿目录探测：默认位置、搬过位置的草稿库、显式设置优先、找不到时的报错
-- 标题与开头重复的判定：改写后的重复、落在第二句的重复、近似但不重复的放行
-- 字幕换行估算与基线补偿
-- 标题断行（参考视频那条标题的实际断点、粒子规则、数字不拆、显式换行、行数上限）
-- 标题分行堆叠：整块居中、行距、过长时缩字号
-- 参考图锚定：锚点先画、其余每张带着缩小后的锚点和「只参考画风」的说明、锚点失败就不画依赖它的镜头、接口拒绝时点名这一项
-- 标题逐字渐变：首字主色、末字强调色、每行守住自己那一端、拆开的每一段都保留字体描边阴影、`lines` 模式与两种油墨的配色不渐变
-- 画风预设的完整性：九套各带 `medium` / `avoid` / `grade` / `title`，字符串写法向后兼容
-- 画面主体：主体进得了提示词、没有主体时的兜底、景别对应的容量上限与主体大小、不许拼图分屏
-- 分镜导演拿到的约束：必须点名一个具体的东西、不许用符号堆砌、拿到的容量上限和生图一致
-- 默认画风：主体上色、房间白线、黑线勾边，旧的「纯线稿 / 不许上色」条款确实被删掉而不是被抵消
-- 分镜导演：场景与物件和人同等、不许默认画人、必须写出有家具的房间、一格最多一个长在房间里的象征元素
-- `styles.json` 与代码内置默认一致
-- 分镜 JSON 容错与景别 / 段落标记解析
-- 一个集成测试：用合成素材真正生成一份草稿，再解析 `draft_content.json` 逐项断言时间轴
-- 整条命令跑一遍（付费服务换成假的）：失败后重跑不会把别的句子的配音挂到字幕底下、换画风 / 换音色 / 换速度会重做该重做的、什么都没改就一分钱不重花、旧版本任务的文件被信任一次并改名
+- Layout coordinate conversion and safe-area clamping
+- Camera rate normalisation, upscale ceiling, and pans that never expose the edge
+- Timeline layout: gapless shots, beat placement, ending on the last subtitle
+- Music library: label parsing, compound labels winning, positional labels ranked down, no match meaning no music, reproducible ties
+- Finding Jianying's drafts: the default location, a relocated library, an explicit setting winning, the error when nothing is found
+- The title-echo check: a reworded repeat, one landing in sentence two, a near miss left spoken
+- BGM looping, head/tail fades, and the ducking envelope (including "do not lift when the gap is too short")
+- Caption wrap estimation and baseline compensation
+- Title line breaking: the reference title's real break point, the particle rules, digit runs kept whole, explicit newlines, the line ceiling
+- The stacked title: block centring, line pitch, and shrinking rather than wrapping when it is too long
+- The anchor frame: drawn first and alone, every other frame sent with a shrunk copy and the note on what it is for, nothing drawn against a failed anchor, and a refusing endpoint naming the setting
+- The title ramp: primary at the first character, accent at the last, each line holding its own end, every split run keeping the font, stroke and shadow, and `lines` mode and the two-ink colourways staying flat
+- The frame's subject: it reaches the prompt, it falls back when absent, the element budget and subject size track the framing, and neither end may ask for a collage
+- What the director is held to: naming a drawable thing, no symbol piles, and the same element budget the picture is drawn to
+- The default style paints the subject and draws the room, and the old "single-colour, no filled colour areas" clauses are gone rather than contradicted
+- The director: places and objects rank with people, no defaulting to a person, a furnished room is required, and at most one symbol that lives in it
+- `styles.json` agrees with the built-in default
+- Style completeness: nine presets each carrying `medium` / `avoid` / `grade` / `title`, and the backward-compatible string form
+- Storyboard JSON tolerance, framing and paragraph-mark parsing
+- One integration test that builds a real draft from synthetic media and asserts against the parsed `draft_content.json`
+- Whole runs of the command with the paid services faked: a re-run after a failure never narrates one line under another; a new style, voice or speed redoes exactly what depends on it; an unchanged resume pays for nothing; an older run's files are trusted once and renamed
 
 ---
 
-## 常见问题
+## Troubleshooting
 
-| 现象 | 处理 |
+| Symptom | Fix |
 | --- | --- |
-| HTTP 429 | 调小 `IMAGE_CONCURRENCY`。错误信息里带了接口返回的原文，可据此区分限流和欠费 |
-| SSL EOF / 网络中断 | 稍后 `--resume`，必要时临时把并发降到 1。生图请求如果在服务器可能已经收下之后才断开，**不会自动重发**（重发可能同一张图扣两次费）；`--resume` 只补画缺的那几张 |
-| 分镜阶段报 `Network request failed after 3 attempts` | 旧版本的症状：模型在「思考」、一直不回数据，连接被掐。现在的版本已经关掉思考并改成流式；还报的话填上 `DEEPSEEK_API_KEY` |
-| 找不到开场音效 | 确认 `OPENING_SOUND_PATH` 指向存在的 MP3 或 WAV |
-| 找不到剪映目录 | 自动探测失败时才需要填 `JIAN_YING_DRAFT_DIR`；剪映里 全局设置 → 草稿位置 就是要填的路径 |
-| 没有 BGM | `--check-config` 看曲库路径和曲目数；文件名必须以中文情绪标签开头才匹配得上 |
-| 字幕位置不合适 | 改 `NARRATION_SUBTITLE_Y`，先用 `--check-config` 看落点 |
-| 字幕换行时上下飘 | 调 `SUBTITLE_EM_PX`，只有这一个数影响换行估算 |
-| 改了 `.env` 不生效 | 系统环境变量优先级更高，`--check-config` 会显示来源 |
-| 画风不对 | 先 `--plan-only` 看分镜描述，画风词是拼在它后面的 |
-| 画面没有重点 | `--plan-only` 看 `subject` 是不是填成了抽象词；另外确认 `styles.json` 里的 `midnight` 是新版（含 `fully painted`） |
-| 每一格都是人 | 说明用的是旧版 brief。新版明确写了「不要默认画人」，`--plan-only` 里应该能看到以场景或物件为主体的镜头 |
-| 画面是空背景上的一个小图标 | `styles.json` 会覆盖代码内置默认。确认它的 `midnight.prompt` 里有 `fully painted` 和 `no plain empty background`，没有就是旧文件 |
-| 标题或字幕字体不对 | 剪映里没下载该字体时会回退成默认字体。换 `TITLE_FONT` / `SUBTITLE_FONT`，或先在剪映里用一次那个字体 |
-| 标题断在奇怪的地方 | 在 `--title` 里直接写换行符，程序会原样照排 |
-| 标题压住了画面主体 | `TITLE_Y` 填正数往上挪（`+300` 约在上三分之一） |
+| HTTP 429 | Lower `IMAGE_CONCURRENCY`. Errors carry the API's response body, so rate limiting and an empty balance are distinguishable |
+| SSL EOF / dropped connection | Retry later with `--resume`; drop to one worker if needed. An image request cut off after the server may already have taken it is **not resent automatically** — a second attempt could bill the same frame twice; `--resume` draws only the missing ones |
+| `Network request failed after 3 attempts` at the storyboard | The old symptom of a model still thinking while the connection timed out. Thinking is now off and the call streams; if it persists, set `DEEPSEEK_API_KEY` |
+| Opening sound effect not found | Check `OPENING_SOUND_PATH` points at an existing MP3 or WAV |
+| Jianying folder not found | Only needed when the lookup fails: 全局设置 → 草稿位置 in Jianying shows the path to put in `JIAN_YING_DRAFT_DIR` |
+| No music | `--check-config` prints the library path and how many tracks carry a mood label; a filename must START with one to be matched |
+| Caption sits wrong | Adjust `NARRATION_SUBTITLE_Y`, confirming with `--check-config` |
+| Wrapped captions drift | Calibrate `SUBTITLE_EM_PX`; it is the only number feeding the wrap estimate |
+| `.env` edits do nothing | A process environment variable takes priority; `--check-config` shows the source |
+| Wrong art style | Run `--plan-only` first — the style prompt is appended after the scene description |
+| Wrong title or caption font | Jianying falls back to a default when the font is not downloaded. Change `TITLE_FONT` / `SUBTITLE_FONT`, or use that font once inside Jianying first |
+| Title breaks in an odd place | Write the newline yourself in `--title`; it is used verbatim |
+| Title covers the subject | Raise it with a positive `TITLE_Y` (`+300` is roughly the upper third) |
 
 ---
 
-## 隐私与发布安全
+## Privacy and release safety
 
-`.gitignore` 已排除 `.env`、`output/` 下的全部生成媒体与日志、`assets/` 下的个人素材，以及 Python 缓存和编辑器状态。
+`.gitignore` excludes `.env`, everything generated under `output/`, personal media under `assets/`, and Python and editor state.
 
-提交前仍建议自己扫一遍密钥。如果密钥曾经被提交或发送到不可信的地方，应立即在控制台撤销并重新创建。
+Scan for secrets before publishing anyway. If a key was ever committed or sent somewhere untrusted, revoke and reissue it in the console immediately.
 
-## 当前限制
+## Current limits
 
-- 单次文案最多约 1800 个非空白字符
-- 画布固定为横屏 1920×1080
-- 标题最多三行；字体是否可用取决于本机剪映下载过哪些字体
-- 只生成静态图片画面，不含图生视频
-- 输出面向剪映专业版的草稿格式，不保证兼容其他剪辑软件
+- Roughly 1800 non-whitespace characters of copy per run
+- The canvas is fixed at landscape 1920×1080
+- The title is capped at three lines; font availability depends on what Jianying has downloaded locally
+- Stills only; there is no image-to-video stage
+- Output targets the Jianying Pro draft format; other editors are not guaranteed
 
-## 许可证
+## Licence
 
-[MIT](LICENSE)。可自由使用、修改和商用，保留版权声明即可。
+[MIT](LICENSE). Free to use, modify and sell, as long as the copyright notice travels with it.
 
-注意：本项目只包含代码。你自己放进 `assets/` 的音效、音乐和水印，以及生成过程中调用的模型服务，各自适用它们自己的授权条款。
+Note that this covers the code only. Sound effects, music and watermarks you place in `assets/`, and the model services the tool calls, carry their own terms.
 
-## 依赖
+## Dependencies
 
-草稿写入基于 [pyJianYingDraft](https://github.com/GuanYixuan/pyJianYingDraft)。
+Drafts are written with [pyJianYingDraft](https://github.com/GuanYixuan/pyJianYingDraft).
